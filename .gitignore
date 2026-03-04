@@ -1,0 +1,6 @@
+node_modules/
+investor_database.db
+.env
+*.log
+.DS_Store
+Thumbs.db

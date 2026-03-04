@@ -1,0 +1,222 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Investor Database</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header>
+    <div class="header-content">
+      <h1>Investor Database List</h1>
+      <div class="header-actions">
+        <button id="btnScrape" class="btn btn-primary" title="Run Inc42 scraper now">Run Scraper</button>
+        <button id="btnAddInvestor" class="btn btn-secondary">+ Add Investor</button>
+        <div class="dropdown">
+          <button class="btn btn-outline">Export</button>
+          <div class="dropdown-menu">
+            <a href="/api/export/csv" download>Export CSV</a>
+            <a href="/api/export" download>Export JSON</a>
+          </div>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <main>
+    <!-- Stats Cards -->
+    <section class="stats-row" id="statsRow">
+      <div class="stat-card">
+        <div class="stat-number" id="statTotal">-</div>
+        <div class="stat-label">Total Investors</div>
+      </div>
+      <div class="stat-card new">
+        <div class="stat-number" id="statNewToday">-</div>
+        <div class="stat-label">Added Today</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-number" id="statNew">-</div>
+        <div class="stat-label">New (Unseen)</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-number" id="statLastScrape">-</div>
+        <div class="stat-label">Last Scrape</div>
+      </div>
+    </section>
+
+    <!-- Tabs -->
+    <div class="tabs">
+      <button class="tab active" data-tab="all">All Investors</button>
+      <button class="tab" data-tab="new">New Today</button>
+      <button class="tab" data-tab="rounds">Funding Rounds</button>
+      <button class="tab" data-tab="logs">Scrape Logs</button>
+    </div>
+
+    <!-- Search and Filters -->
+    <section class="filters-bar" id="filtersBar">
+      <div class="search-box">
+        <input type="text" id="searchInput" placeholder="Search by name, institution, sector..." />
+      </div>
+      <div class="filter-group">
+        <select id="filterSector">
+          <option value="">All Sectors</option>
+        </select>
+        <select id="filterStage">
+          <option value="">All Stages</option>
+        </select>
+        <select id="filterGeography">
+          <option value="">All Geographies</option>
+        </select>
+        <button id="btnClearFilters" class="btn btn-sm">Clear Filters</button>
+      </div>
+    </section>
+
+    <!-- Investor Table -->
+    <section class="table-container" id="tabAll">
+      <table id="investorTable">
+        <thead>
+          <tr>
+            <th class="sortable" data-sort="name">Name</th>
+            <th class="sortable" data-sort="institution">Institution</th>
+            <th>Title</th>
+            <th>Avg Cheque</th>
+            <th>Geographies</th>
+            <th>Sectors</th>
+            <th class="sortable" data-sort="stage">Stage</th>
+            <th>Shareholding</th>
+            <th>Email</th>
+            <th>Website</th>
+            <th class="sortable" data-sort="date_added">Added</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody id="investorTableBody">
+          <tr><td colspan="12" class="empty-state">Loading...</td></tr>
+        </tbody>
+      </table>
+      <div class="pagination" id="pagination"></div>
+    </section>
+
+    <!-- Funding Rounds Tab -->
+    <section class="table-container hidden" id="tabRounds">
+      <table id="roundsTable">
+        <thead>
+          <tr>
+            <th>Startup</th>
+            <th>Amount</th>
+            <th>Round</th>
+            <th>Investors</th>
+            <th>Sector</th>
+            <th>Date</th>
+            <th>Source</th>
+          </tr>
+        </thead>
+        <tbody id="roundsTableBody">
+          <tr><td colspan="7" class="empty-state">Loading...</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <!-- Scrape Logs Tab -->
+    <section class="table-container hidden" id="tabLogs">
+      <table id="logsTable">
+        <thead>
+          <tr>
+            <th>Source</th>
+            <th>Started</th>
+            <th>Finished</th>
+            <th>Status</th>
+            <th>Records Found</th>
+            <th>New Records</th>
+            <th>Error</th>
+          </tr>
+        </thead>
+        <tbody id="logsTableBody">
+          <tr><td colspan="7" class="empty-state">Loading...</td></tr>
+        </tbody>
+      </table>
+    </section>
+  </main>
+
+  <!-- Add/Edit Modal -->
+  <div class="modal-overlay hidden" id="investorModal">
+    <div class="modal">
+      <div class="modal-header">
+        <h2 id="modalTitle">Add Investor</h2>
+        <button class="modal-close" id="modalClose">&times;</button>
+      </div>
+      <form id="investorForm">
+        <input type="hidden" id="formId" />
+        <div class="form-grid">
+          <div class="form-group">
+            <label for="formName">Name *</label>
+            <input type="text" id="formName" required />
+          </div>
+          <div class="form-group">
+            <label for="formInstitution">Institution</label>
+            <input type="text" id="formInstitution" />
+          </div>
+          <div class="form-group">
+            <label for="formTitle">Title</label>
+            <input type="text" id="formTitle" />
+          </div>
+          <div class="form-group">
+            <label for="formCheque">Avg Cheque Size</label>
+            <input type="text" id="formCheque" placeholder="e.g. $500K - $2M" />
+          </div>
+          <div class="form-group">
+            <label for="formGeographies">Geographies</label>
+            <input type="text" id="formGeographies" placeholder="e.g. India, Southeast Asia" />
+          </div>
+          <div class="form-group">
+            <label for="formSectors">Sectors</label>
+            <input type="text" id="formSectors" placeholder="e.g. fintech, saas, healthtech" />
+          </div>
+          <div class="form-group">
+            <label for="formStage">Stage</label>
+            <select id="formStage">
+              <option value="">Select...</option>
+              <option value="Pre-Seed">Pre-Seed</option>
+              <option value="Seed">Seed</option>
+              <option value="Angel">Angel</option>
+              <option value="Series A">Series A</option>
+              <option value="Series B">Series B</option>
+              <option value="Series C">Series C</option>
+              <option value="Series D+">Series D+</option>
+              <option value="Growth">Growth</option>
+              <option value="Bridge">Bridge</option>
+              <option value="Debt">Debt</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label for="formShareholding">Typical Shareholding</label>
+            <input type="text" id="formShareholding" placeholder="e.g. 10-15%" />
+          </div>
+          <div class="form-group">
+            <label for="formEmail">Email</label>
+            <input type="email" id="formEmail" />
+          </div>
+          <div class="form-group">
+            <label for="formWebsite">Website</label>
+            <input type="url" id="formWebsite" placeholder="https://..." />
+          </div>
+          <div class="form-group full-width">
+            <label for="formNotes">Notes</label>
+            <textarea id="formNotes" rows="3"></textarea>
+          </div>
+        </div>
+        <div class="form-actions">
+          <button type="button" class="btn btn-outline" id="btnCancelForm">Cancel</button>
+          <button type="submit" class="btn btn-primary">Save</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Toast notification -->
+  <div class="toast hidden" id="toast"></div>
+
+  <script src="app.js"></script>
+</body>
+</html>
