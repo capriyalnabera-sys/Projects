@@ -9,12 +9,38 @@
 <body>
   <header>
     <div class="header-content">
-      <h1>Investor Database List</h1>
+      <div class="header-left">
+        <div class="logo">
+          <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>
+        </div>
+        <div>
+          <h1>Investor Database</h1>
+          <p class="header-subtitle">Track VCs, Angels & Family Offices across India and APAC</p>
+        </div>
+      </div>
       <div class="header-actions">
-        <button id="btnScrape" class="btn btn-primary" title="Run Inc42 scraper now">Run Scraper</button>
+        <div class="dropdown">
+          <button class="btn btn-primary" id="btnScrape">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4v5h5"/><path d="M20 20v-5h-5"/><path d="M4 9A8 8 0 0 1 20 9"/><path d="M20 15A8 8 0 0 1 4 15"/></svg>
+            Scrape
+          </button>
+          <div class="dropdown-menu" id="scrapeMenu">
+            <a href="#" data-source="inc42">Inc42</a>
+            <a href="#" data-source="yourstory">YourStory</a>
+            <a href="#" data-source="livemint">LiveMint</a>
+            <a href="#" data-source="vccircle">VCCircle</a>
+            <a href="#" data-source="entrackr">Entrackr</a>
+            <div class="dropdown-divider"></div>
+            <a href="#" data-source="all"><strong>Scrape All</strong></a>
+          </div>
+        </div>
+        <button id="btnSeedData" class="btn btn-secondary" title="Seed curated global investor data">Seed Data</button>
         <button id="btnAddInvestor" class="btn btn-secondary">+ Add Investor</button>
         <div class="dropdown">
-          <button class="btn btn-outline">Export</button>
+          <button class="btn btn-outline">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7,10 12,15 17,10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+            Export
+          </button>
           <div class="dropdown-menu">
             <a href="/api/export/csv" download>Export CSV</a>
             <a href="/api/export" download>Export JSON</a>
@@ -28,20 +54,49 @@
     <!-- Stats Cards -->
     <section class="stats-row" id="statsRow">
       <div class="stat-card">
-        <div class="stat-number" id="statTotal">-</div>
-        <div class="stat-label">Total Investors</div>
-      </div>
-      <div class="stat-card new">
-        <div class="stat-number" id="statNewToday">-</div>
-        <div class="stat-label">Added Today</div>
-      </div>
-      <div class="stat-card">
-        <div class="stat-number" id="statNew">-</div>
-        <div class="stat-label">New (Unseen)</div>
+        <div class="stat-icon blue">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+        </div>
+        <div class="stat-info">
+          <div class="stat-number" id="statTotal">-</div>
+          <div class="stat-label">Total Investors</div>
+        </div>
       </div>
       <div class="stat-card">
-        <div class="stat-number" id="statLastScrape">-</div>
-        <div class="stat-label">Last Scrape</div>
+        <div class="stat-icon green">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14"/><path d="M5 12h14"/></svg>
+        </div>
+        <div class="stat-info">
+          <div class="stat-number" id="statNewToday">-</div>
+          <div class="stat-label">Added Today</div>
+        </div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-icon amber">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14,2 14,8 20,8"/></svg>
+        </div>
+        <div class="stat-info">
+          <div class="stat-number" id="statNews">-</div>
+          <div class="stat-label">Funding News</div>
+        </div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-icon purple">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12,6 12,12 16,14"/></svg>
+        </div>
+        <div class="stat-info">
+          <div class="stat-number" id="statLastScrape">-</div>
+          <div class="stat-label">Last Scrape</div>
+        </div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-icon teal">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="1" y="4" width="22" height="16" rx="2" ry="2"/><line x1="1" y1="10" x2="23" y2="10"/></svg>
+        </div>
+        <div class="stat-info">
+          <div class="stat-number" id="statRounds">-</div>
+          <div class="stat-label">Funding Rounds</div>
+        </div>
       </div>
     </section>
 
@@ -49,6 +104,7 @@
     <div class="tabs">
       <button class="tab active" data-tab="all">All Investors</button>
       <button class="tab" data-tab="new">New Today</button>
+      <button class="tab" data-tab="news">Funding News</button>
       <button class="tab" data-tab="rounds">Funding Rounds</button>
       <button class="tab" data-tab="logs">Scrape Logs</button>
     </div>
@@ -56,19 +112,15 @@
     <!-- Search and Filters -->
     <section class="filters-bar" id="filtersBar">
       <div class="search-box">
-        <input type="text" id="searchInput" placeholder="Search by name, institution, sector..." />
+        <svg class="search-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+        <input type="text" id="searchInput" placeholder="Search investors, institutions, sectors..." />
       </div>
       <div class="filter-group">
-        <select id="filterSector">
-          <option value="">All Sectors</option>
-        </select>
-        <select id="filterStage">
-          <option value="">All Stages</option>
-        </select>
-        <select id="filterGeography">
-          <option value="">All Geographies</option>
-        </select>
-        <button id="btnClearFilters" class="btn btn-sm">Clear Filters</button>
+        <select id="filterSector"><option value="">All Sectors</option></select>
+        <select id="filterStage"><option value="">All Stages</option></select>
+        <select id="filterGeography"><option value="">All Geographies</option></select>
+        <select id="filterSource"><option value="">All Sources</option></select>
+        <button id="btnClearFilters" class="btn btn-sm">Clear</button>
       </div>
     </section>
 
@@ -87,54 +139,45 @@
             <th>Shareholding</th>
             <th>Email</th>
             <th>Website</th>
+            <th>Source</th>
             <th class="sortable" data-sort="date_added">Added</th>
             <th>Actions</th>
           </tr>
         </thead>
         <tbody id="investorTableBody">
-          <tr><td colspan="12" class="empty-state">Loading...</td></tr>
+          <tr><td colspan="13" class="empty-state">Loading...</td></tr>
         </tbody>
       </table>
       <div class="pagination" id="pagination"></div>
     </section>
 
+    <!-- Funding News Tab -->
+    <section class="hidden" id="tabNews">
+      <div class="news-search">
+        <div class="search-box">
+          <svg class="search-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+          <input type="text" id="newsSearchInput" placeholder="Search funding news..." />
+        </div>
+      </div>
+      <div class="news-grid" id="newsGrid">
+        <div class="empty-state">Loading funding news...</div>
+      </div>
+      <div class="pagination" id="newsPagination"></div>
+    </section>
+
     <!-- Funding Rounds Tab -->
     <section class="table-container hidden" id="tabRounds">
       <table id="roundsTable">
-        <thead>
-          <tr>
-            <th>Startup</th>
-            <th>Amount</th>
-            <th>Round</th>
-            <th>Investors</th>
-            <th>Sector</th>
-            <th>Date</th>
-            <th>Source</th>
-          </tr>
-        </thead>
-        <tbody id="roundsTableBody">
-          <tr><td colspan="7" class="empty-state">Loading...</td></tr>
-        </tbody>
+        <thead><tr><th>Startup</th><th>Amount</th><th>Round</th><th>Investors</th><th>Sector</th><th>Date</th><th>Source</th></tr></thead>
+        <tbody id="roundsTableBody"><tr><td colspan="7" class="empty-state">Loading...</td></tr></tbody>
       </table>
     </section>
 
     <!-- Scrape Logs Tab -->
     <section class="table-container hidden" id="tabLogs">
       <table id="logsTable">
-        <thead>
-          <tr>
-            <th>Source</th>
-            <th>Started</th>
-            <th>Finished</th>
-            <th>Status</th>
-            <th>Records Found</th>
-            <th>New Records</th>
-            <th>Error</th>
-          </tr>
-        </thead>
-        <tbody id="logsTableBody">
-          <tr><td colspan="7" class="empty-state">Loading...</td></tr>
-        </tbody>
+        <thead><tr><th>Source</th><th>Started</th><th>Finished</th><th>Status</th><th>Records</th><th>New</th><th>Error</th></tr></thead>
+        <tbody id="logsTableBody"><tr><td colspan="7" class="empty-state">Loading...</td></tr></tbody>
       </table>
     </section>
   </main>
@@ -149,62 +192,19 @@
       <form id="investorForm">
         <input type="hidden" id="formId" />
         <div class="form-grid">
-          <div class="form-group">
-            <label for="formName">Name *</label>
-            <input type="text" id="formName" required />
+          <div class="form-group"><label>Name *</label><input type="text" id="formName" required /></div>
+          <div class="form-group"><label>Institution</label><input type="text" id="formInstitution" /></div>
+          <div class="form-group"><label>Title</label><input type="text" id="formTitle" /></div>
+          <div class="form-group"><label>Avg Cheque Size</label><input type="text" id="formCheque" placeholder="e.g. $500K - $2M" /></div>
+          <div class="form-group"><label>Geographies</label><input type="text" id="formGeographies" placeholder="e.g. India, Southeast Asia" /></div>
+          <div class="form-group"><label>Sectors</label><input type="text" id="formSectors" placeholder="e.g. fintech, saas" /></div>
+          <div class="form-group"><label>Stage</label>
+            <select id="formStage"><option value="">Select...</option><option>Pre-Seed</option><option>Seed</option><option>Angel</option><option>Series A</option><option>Series B</option><option>Series C</option><option>Series D+</option><option>Growth</option><option>Bridge</option><option>Debt</option></select>
           </div>
-          <div class="form-group">
-            <label for="formInstitution">Institution</label>
-            <input type="text" id="formInstitution" />
-          </div>
-          <div class="form-group">
-            <label for="formTitle">Title</label>
-            <input type="text" id="formTitle" />
-          </div>
-          <div class="form-group">
-            <label for="formCheque">Avg Cheque Size</label>
-            <input type="text" id="formCheque" placeholder="e.g. $500K - $2M" />
-          </div>
-          <div class="form-group">
-            <label for="formGeographies">Geographies</label>
-            <input type="text" id="formGeographies" placeholder="e.g. India, Southeast Asia" />
-          </div>
-          <div class="form-group">
-            <label for="formSectors">Sectors</label>
-            <input type="text" id="formSectors" placeholder="e.g. fintech, saas, healthtech" />
-          </div>
-          <div class="form-group">
-            <label for="formStage">Stage</label>
-            <select id="formStage">
-              <option value="">Select...</option>
-              <option value="Pre-Seed">Pre-Seed</option>
-              <option value="Seed">Seed</option>
-              <option value="Angel">Angel</option>
-              <option value="Series A">Series A</option>
-              <option value="Series B">Series B</option>
-              <option value="Series C">Series C</option>
-              <option value="Series D+">Series D+</option>
-              <option value="Growth">Growth</option>
-              <option value="Bridge">Bridge</option>
-              <option value="Debt">Debt</option>
-            </select>
-          </div>
-          <div class="form-group">
-            <label for="formShareholding">Typical Shareholding</label>
-            <input type="text" id="formShareholding" placeholder="e.g. 10-15%" />
-          </div>
-          <div class="form-group">
-            <label for="formEmail">Email</label>
-            <input type="email" id="formEmail" />
-          </div>
-          <div class="form-group">
-            <label for="formWebsite">Website</label>
-            <input type="url" id="formWebsite" placeholder="https://..." />
-          </div>
-          <div class="form-group full-width">
-            <label for="formNotes">Notes</label>
-            <textarea id="formNotes" rows="3"></textarea>
-          </div>
+          <div class="form-group"><label>Shareholding</label><input type="text" id="formShareholding" placeholder="e.g. 10-15%" /></div>
+          <div class="form-group"><label>Email</label><input type="email" id="formEmail" /></div>
+          <div class="form-group"><label>Website</label><input type="url" id="formWebsite" placeholder="https://..." /></div>
+          <div class="form-group full-width"><label>Notes</label><textarea id="formNotes" rows="3"></textarea></div>
         </div>
         <div class="form-actions">
           <button type="button" class="btn btn-outline" id="btnCancelForm">Cancel</button>
@@ -214,9 +214,7 @@
     </div>
   </div>
 
-  <!-- Toast notification -->
   <div class="toast hidden" id="toast"></div>
-
   <script src="app.js"></script>
 </body>
 </html>

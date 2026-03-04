@@ -1,8 +1,9 @@
 // State
 let currentTab = 'all';
 let currentPage = 1;
+let newsPage = 1;
 let currentSort = { by: 'date_added', order: 'DESC' };
-let filters = { q: '', sector: '', stage: '', geography: '', is_new: '' };
+let filters = { q: '', sector: '', stage: '', geography: '', source: '', is_new: '' };
 let debounceTimer = null;
 
 // DOM Elements
@@ -11,6 +12,7 @@ const searchInput = $('searchInput');
 const filterSector = $('filterSector');
 const filterStage = $('filterStage');
 const filterGeography = $('filterGeography');
+const filterSource = $('filterSource');
 const investorTableBody = $('investorTableBody');
 const pagination = $('pagination');
 const toast = $('toast');
@@ -34,6 +36,18 @@ function setupEventListeners() {
     }, 300);
   });
 
+  // News search with debounce
+  const newsSearchInput = $('newsSearchInput');
+  if (newsSearchInput) {
+    newsSearchInput.addEventListener('input', () => {
+      clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(() => {
+        newsPage = 1;
+        loadFundingNews();
+      }, 300);
+    });
+  }
+
   // Filters
   filterSector.addEventListener('change', () => {
     filters.sector = filterSector.value;
@@ -53,13 +67,22 @@ function setupEventListeners() {
     loadInvestors();
   });
 
+  if (filterSource) {
+    filterSource.addEventListener('change', () => {
+      filters.source = filterSource.value;
+      currentPage = 1;
+      loadInvestors();
+    });
+  }
+
   // Clear filters
   $('btnClearFilters').addEventListener('click', () => {
     searchInput.value = '';
     filterSector.value = '';
     filterStage.value = '';
     filterGeography.value = '';
-    filters = { q: '', sector: '', stage: '', geography: '', is_new: '' };
+    if (filterSource) filterSource.value = '';
+    filters = { q: '', sector: '', stage: '', geography: '', source: '', is_new: '' };
     currentPage = 1;
     loadInvestors();
   });
@@ -72,22 +95,36 @@ function setupEventListeners() {
       currentTab = tab.dataset.tab;
 
       // Show/hide sections
-      $('tabAll').classList.toggle('hidden', currentTab === 'rounds' || currentTab === 'logs');
-      $('tabRounds').classList.toggle('hidden', currentTab !== 'rounds');
-      $('tabLogs').classList.toggle('hidden', currentTab !== 'logs');
-      $('filtersBar').classList.toggle('hidden', currentTab === 'logs');
+      const allSections = ['tabAll', 'tabNews', 'tabRounds', 'tabLogs'];
+      allSections.forEach(id => {
+        const el = $(id);
+        if (el) el.classList.add('hidden');
+      });
 
-      if (currentTab === 'new') {
-        filters.is_new = '1';
-        currentPage = 1;
-        loadInvestors();
-      } else if (currentTab === 'all') {
+      // Show/hide filters (only for investor tabs)
+      const filtersBar = $('filtersBar');
+      if (filtersBar) {
+        filtersBar.classList.toggle('hidden', currentTab === 'logs' || currentTab === 'news' || currentTab === 'rounds');
+      }
+
+      if (currentTab === 'all') {
+        $('tabAll').classList.remove('hidden');
         filters.is_new = '';
         currentPage = 1;
         loadInvestors();
+      } else if (currentTab === 'new') {
+        $('tabAll').classList.remove('hidden');
+        filters.is_new = '1';
+        currentPage = 1;
+        loadInvestors();
+      } else if (currentTab === 'news') {
+        $('tabNews').classList.remove('hidden');
+        loadFundingNews();
       } else if (currentTab === 'rounds') {
+        $('tabRounds').classList.remove('hidden');
         loadFundingRounds();
       } else if (currentTab === 'logs') {
+        $('tabLogs').classList.remove('hidden');
         loadScrapeLogs();
       }
     });
@@ -103,39 +140,48 @@ function setupEventListeners() {
         currentSort.by = sortBy;
         currentSort.order = 'ASC';
       }
-      // Update UI
-      document.querySelectorAll('.sortable').forEach(s => {
-        s.classList.remove('asc', 'desc');
-      });
+      document.querySelectorAll('.sortable').forEach(s => s.classList.remove('asc', 'desc'));
       th.classList.add(currentSort.order === 'ASC' ? 'asc' : 'desc');
       loadInvestors();
     });
   });
 
-  // Scrape button
-  $('btnScrape').addEventListener('click', async () => {
-    const btn = $('btnScrape');
-    btn.disabled = true;
-    btn.textContent = 'Scraping...';
-    btn.innerHTML = '<span class="spinner" style="display:inline-block;width:12px;height:12px;border:2px solid white;border-top-color:transparent;border-radius:50%;animation:spin 0.8s linear infinite;margin-right:6px;vertical-align:middle;"></span> Scraping...';
-
-    try {
-      const res = await fetch('/api/scrape', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ source: 'inc42', maxPages: 2 })
+  // Scrape dropdown items
+  const scrapeMenu = $('scrapeMenu');
+  if (scrapeMenu) {
+    scrapeMenu.querySelectorAll('a[data-source]').forEach(link => {
+      link.addEventListener('click', async (e) => {
+        e.preventDefault();
+        const source = link.dataset.source;
+        await triggerScrape(source);
       });
-      const data = await res.json();
-      showToast('Scraper started. Results will appear shortly.', 'success');
+    });
+  }
 
-      // Poll for completion
-      pollScrapeStatus(btn);
-    } catch (err) {
-      showToast('Failed to start scraper: ' + err.message, 'error');
-      btn.disabled = false;
-      btn.textContent = 'Run Scraper';
-    }
-  });
+  // Seed Data button
+  const btnSeedData = $('btnSeedData');
+  if (btnSeedData) {
+    btnSeedData.addEventListener('click', async () => {
+      btnSeedData.disabled = true;
+      btnSeedData.textContent = 'Seeding...';
+      try {
+        const res = await fetch('/api/seed', { method: 'POST' });
+        const data = await res.json();
+        if (data.success) {
+          showToast('Global investor data seeded successfully!', 'success');
+          loadInvestors();
+          loadStats();
+          loadFilters();
+        } else {
+          showToast('Seed failed: ' + (data.error || 'Unknown error'), 'error');
+        }
+      } catch (err) {
+        showToast('Seed failed: ' + err.message, 'error');
+      }
+      btnSeedData.disabled = false;
+      btnSeedData.textContent = 'Seed Data';
+    });
+  }
 
   // Add investor button
   $('btnAddInvestor').addEventListener('click', () => openModal());
@@ -152,9 +198,44 @@ function setupEventListeners() {
     e.preventDefault();
     await saveInvestor();
   });
+
+  // Close dropdowns when clicking outside
+  document.addEventListener('click', (e) => {
+    if (!e.target.closest('.dropdown')) {
+      document.querySelectorAll('.dropdown.open').forEach(d => d.classList.remove('open'));
+    }
+  });
 }
 
-// API calls
+// ─── Scrape ───
+async function triggerScrape(source) {
+  const btn = $('btnScrape');
+  const originalHTML = btn.innerHTML;
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner" style="display:inline-block;width:12px;height:12px;border:2px solid white;border-top-color:transparent;border-radius:50%;animation:spin 0.8s linear infinite;margin-right:6px;vertical-align:middle;"></span> Scraping...';
+
+  try {
+    const url = source === 'all' ? '/api/scrape/all' : '/api/scrape';
+    const body = source === 'all' ? { maxPages: 2 } : { source, maxPages: 2 };
+
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    });
+    const data = await res.json();
+    showToast(`Scraper started for ${source === 'all' ? 'all sources' : source}. Results will appear shortly.`, 'success');
+
+    // Poll for completion
+    pollScrapeStatus(btn, originalHTML);
+  } catch (err) {
+    showToast('Failed to start scraper: ' + err.message, 'error');
+    btn.disabled = false;
+    btn.innerHTML = originalHTML;
+  }
+}
+
+// ─── API Calls ───
 async function loadStats() {
   try {
     const res = await fetch('/api/stats');
@@ -162,14 +243,26 @@ async function loadStats() {
 
     $('statTotal').textContent = stats.total.toLocaleString();
     $('statNewToday').textContent = stats.newToday.toLocaleString();
-    $('statNew').textContent = stats.totalNew.toLocaleString();
 
-    if (stats.lastScrape) {
-      const date = new Date(stats.lastScrape.started_at);
-      $('statLastScrape').textContent = formatRelativeTime(date);
-    } else {
-      $('statLastScrape').textContent = 'Never';
+    // Funding News count
+    const statNews = $('statNews');
+    if (statNews) statNews.textContent = (stats.newsCount || 0).toLocaleString();
+
+    // Last Scrape
+    const statLastScrape = $('statLastScrape');
+    if (statLastScrape) {
+      if (stats.lastScrape) {
+        const date = new Date(stats.lastScrape.started_at);
+        statLastScrape.textContent = formatRelativeTime(date);
+      } else {
+        statLastScrape.textContent = 'Never';
+      }
     }
+
+    // Funding Rounds count
+    const statRounds = $('statRounds');
+    if (statRounds) statRounds.textContent = (stats.roundsCount || 0).toLocaleString();
+
   } catch (err) {
     console.error('Error loading stats:', err);
   }
@@ -183,12 +276,16 @@ async function loadFilters() {
     populateSelect(filterSector, options.sectors, 'All Sectors');
     populateSelect(filterStage, options.stages, 'All Stages');
     populateSelect(filterGeography, options.geographies, 'All Geographies');
+    if (filterSource && options.sources) {
+      populateSelect(filterSource, options.sources, 'All Sources');
+    }
   } catch (err) {
     console.error('Error loading filters:', err);
   }
 }
 
 function populateSelect(select, items, defaultLabel) {
+  if (!select) return;
   select.innerHTML = `<option value="">${defaultLabel}</option>`;
   items.forEach(item => {
     const opt = document.createElement('option');
@@ -211,21 +308,22 @@ async function loadInvestors() {
     if (filters.sector) params.set('sector', filters.sector);
     if (filters.stage) params.set('stage', filters.stage);
     if (filters.geography) params.set('geography', filters.geography);
+    if (filters.source) params.set('source', filters.source);
     if (filters.is_new) params.set('is_new', filters.is_new);
 
     const res = await fetch(`/api/investors?${params}`);
     const data = await res.json();
 
     renderInvestors(data.investors);
-    renderPagination(data);
+    renderPagination(data, 'pagination', goToPage);
   } catch (err) {
-    investorTableBody.innerHTML = `<tr><td colspan="12" class="empty-state">Error loading data: ${err.message}</td></tr>`;
+    investorTableBody.innerHTML = `<tr><td colspan="13" class="empty-state">Error loading data: ${err.message}</td></tr>`;
   }
 }
 
 function renderInvestors(investors) {
   if (investors.length === 0) {
-    investorTableBody.innerHTML = `<tr><td colspan="12" class="empty-state">No investors found. Try adjusting your filters or run the scraper.</td></tr>`;
+    investorTableBody.innerHTML = `<tr><td colspan="13" class="empty-state">No investors found. Try adjusting your filters or run the scraper.</td></tr>`;
     return;
   }
 
@@ -250,6 +348,7 @@ function renderInvestors(investors) {
       <td>${esc(inv.shareholding || '-')}</td>
       <td>${inv.email ? `<a href="mailto:${esc(inv.email)}">${esc(inv.email)}</a>` : '-'}</td>
       <td>${inv.website ? `<a href="${esc(inv.website)}" target="_blank" rel="noopener">Link</a>` : '-'}</td>
+      <td>${inv.source ? `<span class="source-badge ${esc(inv.source)}">${esc(inv.source)}</span>` : '-'}</td>
       <td>${formatDate(inv.date_added)}</td>
       <td class="actions-cell">
         <button class="edit-btn" onclick="editInvestor(${inv.id})" title="Edit">Edit</button>
@@ -259,37 +358,95 @@ function renderInvestors(investors) {
   `).join('');
 }
 
-function renderPagination(data) {
-  const { page, totalPages, total, limit } = data;
+// ─── Funding News ───
+async function loadFundingNews() {
+  const newsGrid = $('newsGrid');
+  if (!newsGrid) return;
+
+  try {
+    const params = new URLSearchParams({ page: newsPage, limit: 30 });
+    const newsSearchInput = $('newsSearchInput');
+    if (newsSearchInput && newsSearchInput.value) {
+      params.set('q', newsSearchInput.value);
+    }
+
+    const res = await fetch(`/api/funding-news?${params}`);
+    const data = await res.json();
+
+    if (data.news.length === 0) {
+      newsGrid.innerHTML = '<div class="empty-state">No funding news yet. Run the scraper to fetch the latest news.</div>';
+      const np = $('newsPagination');
+      if (np) np.innerHTML = '';
+      return;
+    }
+
+    newsGrid.innerHTML = data.news.map(n => `
+      <div class="news-card">
+        <div class="news-card-header">
+          <div class="news-card-title">
+            ${n.source_url ? `<a href="${esc(n.source_url)}" target="_blank" rel="noopener">${esc(n.headline)}</a>` : esc(n.headline)}
+          </div>
+        </div>
+        <div class="news-card-meta">
+          ${n.source ? `<span class="source-badge ${esc(n.source)}">${esc(n.source)}</span>` : ''}
+          ${n.amount ? `<span class="news-card-amount">${esc(n.amount)}</span>` : ''}
+          <span class="meta-item">${formatDate(n.published_date || n.date_added)}</span>
+        </div>
+        ${n.summary ? `<div class="news-card-summary">${esc(n.summary)}</div>` : ''}
+        <div class="news-card-tags">
+          ${n.startup_name ? `<span class="tag">${esc(n.startup_name)}</span>` : ''}
+          ${n.round_type ? `<span class="tag stage">${esc(n.round_type)}</span>` : ''}
+          ${n.sector ? `<span class="tag">${esc(n.sector)}</span>` : ''}
+          ${n.investors ? n.investors.split(',').slice(0, 3).map(i => `<span class="tag">${esc(i.trim())}</span>`).join('') : ''}
+        </div>
+      </div>
+    `).join('');
+
+    // News pagination
+    const np = $('newsPagination');
+    if (np) {
+      renderPagination(data, 'newsPagination', goToNewsPage);
+    }
+  } catch (err) {
+    newsGrid.innerHTML = `<div class="empty-state">Error loading funding news: ${err.message}</div>`;
+  }
+}
+
+// ─── Pagination ───
+function renderPagination(data, containerId, goToFn) {
+  const container = $(containerId);
+  if (!container) return;
+
+  const { page, totalPages, total } = data;
   if (totalPages <= 1) {
-    pagination.innerHTML = `<span class="page-info">${total} investor${total !== 1 ? 's' : ''}</span>`;
+    container.innerHTML = `<span class="page-info">${total} result${total !== 1 ? 's' : ''}</span>`;
     return;
   }
 
   let html = '';
-  html += `<button ${page <= 1 ? 'disabled' : ''} onclick="goToPage(${page - 1})">Prev</button>`;
+  html += `<button ${page <= 1 ? 'disabled' : ''} onclick="${goToFn.name}(${page - 1})">Prev</button>`;
 
   const start = Math.max(1, page - 2);
   const end = Math.min(totalPages, page + 2);
 
   if (start > 1) {
-    html += `<button onclick="goToPage(1)">1</button>`;
+    html += `<button onclick="${goToFn.name}(1)">1</button>`;
     if (start > 2) html += `<span class="page-info">...</span>`;
   }
 
   for (let i = start; i <= end; i++) {
-    html += `<button class="${i === page ? 'active' : ''}" onclick="goToPage(${i})">${i}</button>`;
+    html += `<button class="${i === page ? 'active' : ''}" onclick="${goToFn.name}(${i})">${i}</button>`;
   }
 
   if (end < totalPages) {
     if (end < totalPages - 1) html += `<span class="page-info">...</span>`;
-    html += `<button onclick="goToPage(${totalPages})">${totalPages}</button>`;
+    html += `<button onclick="${goToFn.name}(${totalPages})">${totalPages}</button>`;
   }
 
-  html += `<button ${page >= totalPages ? 'disabled' : ''} onclick="goToPage(${page + 1})">Next</button>`;
+  html += `<button ${page >= totalPages ? 'disabled' : ''} onclick="${goToFn.name}(${page + 1})">Next</button>`;
   html += `<span class="page-info">${total} total</span>`;
 
-  pagination.innerHTML = html;
+  container.innerHTML = html;
 }
 
 window.goToPage = function(page) {
@@ -298,7 +455,12 @@ window.goToPage = function(page) {
   window.scrollTo({ top: 0, behavior: 'smooth' });
 };
 
-// Funding Rounds
+window.goToNewsPage = function(page) {
+  newsPage = page;
+  loadFundingNews();
+};
+
+// ─── Funding Rounds ───
 async function loadFundingRounds() {
   try {
     const res = await fetch('/api/funding-rounds');
@@ -306,19 +468,19 @@ async function loadFundingRounds() {
     const tbody = $('roundsTableBody');
 
     if (data.rounds.length === 0) {
-      tbody.innerHTML = `<tr><td colspan="7" class="empty-state">No funding rounds recorded yet.</td></tr>`;
+      tbody.innerHTML = `<tr><td colspan="7" class="empty-state">No funding rounds recorded yet. Run the scraper to fetch data.</td></tr>`;
       return;
     }
 
     tbody.innerHTML = data.rounds.map(r => `
       <tr>
         <td>${esc(r.startup_name || '-')}</td>
-        <td>${esc(r.amount || '-')}</td>
+        <td><strong>${esc(r.amount || '-')}</strong></td>
         <td>${r.round_type ? `<span class="tag stage">${esc(r.round_type)}</span>` : '-'}</td>
         <td title="${esc(r.investors || '')}">${esc((r.investors || '').substring(0, 80))}${(r.investors || '').length > 80 ? '...' : ''}</td>
         <td>${esc(r.sector || '-')}</td>
         <td>${formatDate(r.date_reported)}</td>
-        <td>${r.source_url ? `<a href="${esc(r.source_url)}" target="_blank" rel="noopener">${esc(r.source || 'Link')}</a>` : esc(r.source || '-')}</td>
+        <td>${r.source_url ? `<a href="${esc(r.source_url)}" target="_blank" rel="noopener">${r.source ? `<span class="source-badge ${esc(r.source)}">${esc(r.source)}</span>` : 'Link'}</a>` : (r.source ? `<span class="source-badge ${esc(r.source)}">${esc(r.source)}</span>` : '-')}</td>
       </tr>
     `).join('');
   } catch (err) {
@@ -326,7 +488,7 @@ async function loadFundingRounds() {
   }
 }
 
-// Scrape Logs
+// ─── Scrape Logs ───
 async function loadScrapeLogs() {
   try {
     const res = await fetch('/api/scrape/logs');
@@ -334,16 +496,16 @@ async function loadScrapeLogs() {
     const tbody = $('logsTableBody');
 
     if (logs.length === 0) {
-      tbody.innerHTML = `<tr><td colspan="7" class="empty-state">No scrape runs yet. Click "Run Scraper" to start.</td></tr>`;
+      tbody.innerHTML = `<tr><td colspan="7" class="empty-state">No scrape runs yet. Use the Scrape button to start.</td></tr>`;
       return;
     }
 
     tbody.innerHTML = logs.map(l => `
       <tr>
-        <td><span class="source-badge ${l.source}">${esc(l.source)}</span></td>
+        <td><span class="source-badge ${esc(l.source)}">${esc(l.source)}</span></td>
         <td>${formatDateTime(l.started_at)}</td>
         <td>${l.finished_at ? formatDateTime(l.finished_at) : '-'}</td>
-        <td><span class="status-badge ${l.status}">${esc(l.status)}</span></td>
+        <td><span class="status-badge ${esc(l.status)}">${esc(l.status)}</span></td>
         <td>${l.records_found}</td>
         <td>${l.new_records}</td>
         <td title="${esc(l.error_message || '')}">${esc((l.error_message || '').substring(0, 50))}</td>
@@ -354,7 +516,7 @@ async function loadScrapeLogs() {
   }
 }
 
-// Modal
+// ─── Modal ───
 function openModal(investor = null) {
   const modal = $('investorModal');
   const form = $('investorForm');
@@ -448,17 +610,17 @@ async function saveInvestor() {
   }
 }
 
-// Poll scrape status
-function pollScrapeStatus(btn) {
+// ─── Poll Scrape Status ───
+function pollScrapeStatus(btn, originalHTML) {
   let attempts = 0;
-  const maxAttempts = 120; // 10 minutes max
+  const maxAttempts = 120;
 
   const interval = setInterval(async () => {
     attempts++;
     if (attempts >= maxAttempts) {
       clearInterval(interval);
       btn.disabled = false;
-      btn.textContent = 'Run Scraper';
+      btn.innerHTML = originalHTML;
       return;
     }
 
@@ -468,17 +630,20 @@ function pollScrapeStatus(btn) {
       if (logs.length > 0 && logs[0].status !== 'running') {
         clearInterval(interval);
         btn.disabled = false;
-        btn.textContent = 'Run Scraper';
+        btn.innerHTML = originalHTML;
 
         if (logs[0].status === 'completed') {
           showToast(`Scrape completed! Found ${logs[0].records_found} records (${logs[0].new_records} new)`, 'success');
         } else {
-          showToast(`Scrape failed: ${logs[0].error_message || 'Unknown error'}`, 'error');
+          showToast(`Scrape finished: ${logs[0].error_message || 'Check logs for details'}`, 'error');
         }
 
         loadInvestors();
         loadStats();
         loadFilters();
+        if (currentTab === 'news') loadFundingNews();
+        if (currentTab === 'rounds') loadFundingRounds();
+        if (currentTab === 'logs') loadScrapeLogs();
       }
     } catch (err) {
       // ignore polling errors
@@ -486,7 +651,7 @@ function pollScrapeStatus(btn) {
   }, 5000);
 }
 
-// Utilities
+// ─── Utilities ───
 function esc(str) {
   const div = document.createElement('div');
   div.textContent = str || '';
