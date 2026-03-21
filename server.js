@@ -56,7 +56,7 @@ async function start() {
     console.log('[Scheduler] Daily scrape complete');
   });
 
-  app.listen(PORT, () => {
+  app.listen(PORT, '0.0.0.0', () => {
     console.log(`\n  Asia Startup Funding Tracker running at http://localhost:${PORT}`);
     console.log('  India: Inc42, YourStory, LiveMint, VCCircle, Entrackr');
     console.log('  Singapore/SEA: e27, TechInAsia, DealStreetAsia');
