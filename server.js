@@ -41,9 +41,9 @@ async function start() {
       }
     }
 
-    // Multi-source scrapers
+    // Multi-source scrapers (India + Singapore/SEA)
     const { NewsScraper } = require('./scrapers/newsScraper');
-    for (const site of ['yourstory', 'livemint', 'vccircle', 'entrackr']) {
+    for (const site of ['yourstory', 'livemint', 'vccircle', 'entrackr', 'e27', 'techinasia', 'dealstreetasia']) {
       try {
         const scraper = new NewsScraper(site);
         const result = await scraper.run(2);
@@ -57,8 +57,9 @@ async function start() {
   });
 
   app.listen(PORT, () => {
-    console.log(`\n  Investor Tracker running at http://localhost:${PORT}`);
-    console.log('  Sources: Inc42, YourStory, LiveMint, VCCircle, Entrackr');
+    console.log(`\n  Asia Startup Funding Tracker running at http://localhost:${PORT}`);
+    console.log('  India: Inc42, YourStory, LiveMint, VCCircle, Entrackr');
+    console.log('  Singapore/SEA: e27, TechInAsia, DealStreetAsia');
     console.log('  Daily scrape at 6:00 AM | Manual: POST /api/scrape\n');
   });
 }

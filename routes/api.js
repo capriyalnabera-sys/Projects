@@ -83,8 +83,8 @@ router.get('/export/csv', (req, res) => {
 // Funding news
 router.get('/funding-news', (req, res) => {
   try {
-    const { q: query, source, page = 1, limit = 50 } = req.query;
-    res.json(searchFundingNews({ query, source, page: parseInt(page), limit: parseInt(limit) }));
+    const { q: query, source, country, page = 1, limit = 50 } = req.query;
+    res.json(searchFundingNews({ query, source, country, page: parseInt(page), limit: parseInt(limit) }));
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
@@ -114,7 +114,7 @@ router.post('/scrape/all', async (req, res) => {
     const { maxPages = 2 } = req.body;
     res.json({ success: true, message: 'Scraping all sources...' });
 
-    const sources = ['inc42', 'yourstory', 'livemint', 'vccircle', 'entrackr'];
+    const sources = ['inc42', 'yourstory', 'livemint', 'vccircle', 'entrackr', 'e27', 'techinasia', 'dealstreetasia'];
     for (const src of sources) {
       try {
         if (src === 'inc42') {
@@ -139,10 +139,13 @@ router.get('/scrape/logs', (req, res) => {
 
 router.get('/funding-rounds', (req, res) => {
   try {
-    const { page = 1, limit = 50 } = req.query;
+    const { page = 1, limit = 50, country } = req.query;
     const offset = (parseInt(page) - 1) * parseInt(limit);
-    const totalRow = queryOne(`SELECT COUNT(*) as count FROM funding_rounds`);
-    const rounds = queryAll(`SELECT * FROM funding_rounds ORDER BY date_added DESC LIMIT ? OFFSET ?`, [parseInt(limit), offset]);
+    let whereClause = '';
+    let params = [];
+    if (country) { whereClause = 'WHERE country = ?'; params.push(country); }
+    const totalRow = queryOne(`SELECT COUNT(*) as count FROM funding_rounds ${whereClause}`, params);
+    const rounds = queryAll(`SELECT * FROM funding_rounds ${whereClause} ORDER BY date_added DESC LIMIT ? OFFSET ?`, [...params, parseInt(limit), offset]);
     res.json({ rounds, total: totalRow ? totalRow.count : 0, page: parseInt(page), limit: parseInt(limit) });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });

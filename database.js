@@ -75,6 +75,9 @@ function initializeDatabase() {
       round_type TEXT,
       investors TEXT,
       sector TEXT,
+      valuation TEXT,
+      valuation_multiple TEXT,
+      country TEXT,
       date_reported TEXT,
       source TEXT,
       source_url TEXT,
@@ -92,12 +95,28 @@ function initializeDatabase() {
       round_type TEXT,
       investors TEXT,
       sector TEXT,
+      valuation TEXT,
+      valuation_multiple TEXT,
+      country TEXT,
       source TEXT,
       source_url TEXT,
       published_date TEXT,
       date_added TEXT NOT NULL
     )
   `);
+
+  // Migrate existing tables - add new columns if missing
+  const migrations = [
+    `ALTER TABLE funding_rounds ADD COLUMN valuation TEXT`,
+    `ALTER TABLE funding_rounds ADD COLUMN valuation_multiple TEXT`,
+    `ALTER TABLE funding_rounds ADD COLUMN country TEXT`,
+    `ALTER TABLE funding_news ADD COLUMN valuation TEXT`,
+    `ALTER TABLE funding_news ADD COLUMN valuation_multiple TEXT`,
+    `ALTER TABLE funding_news ADD COLUMN country TEXT`
+  ];
+  migrations.forEach(sql => {
+    try { db.run(sql); } catch (e) { /* column may already exist */ }
+  });
 
   const indexes = [
     `CREATE INDEX IF NOT EXISTS idx_investors_name ON investors(name)`,
@@ -321,12 +340,14 @@ function getInvestor(id) {
 
 function insertFundingRound(round) {
   runSql(`
-    INSERT INTO funding_rounds (startup_name, amount, round_type, investors, sector, date_reported, source, source_url, date_added)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO funding_rounds (startup_name, amount, round_type, investors, sector, valuation, valuation_multiple, country, date_reported, source, source_url, date_added)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `, [
     round.startup_name, round.amount, round.round_type,
-    round.investors, round.sector, round.date_reported,
-    round.source, round.source_url, new Date().toISOString().split('T')[0]
+    round.investors, round.sector, round.valuation || null,
+    round.valuation_multiple || null, round.country || null,
+    round.date_reported, round.source, round.source_url,
+    new Date().toISOString().split('T')[0]
   ]);
 }
 
@@ -339,19 +360,20 @@ function insertFundingNews(news) {
   if (existing) return { action: 'skipped', id: existing.id };
 
   runSql(`
-    INSERT INTO funding_news (headline, summary, startup_name, amount, round_type, investors, sector, source, source_url, published_date, date_added)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO funding_news (headline, summary, startup_name, amount, round_type, investors, sector, valuation, valuation_multiple, country, source, source_url, published_date, date_added)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `, [
     news.headline, news.summary || null, news.startup_name || null,
     news.amount || null, news.round_type || null, news.investors || null,
-    news.sector || null, news.source, news.source_url || null,
+    news.sector || null, news.valuation || null, news.valuation_multiple || null,
+    news.country || null, news.source, news.source_url || null,
     news.published_date || null, new Date().toISOString().split('T')[0]
   ]);
   const lastId = queryOne(`SELECT last_insert_rowid() as id`);
   return { action: 'inserted', id: lastId ? lastId.id : null };
 }
 
-function searchFundingNews({ query, source, page = 1, limit = 50 }) {
+function searchFundingNews({ query, source, country, page = 1, limit = 50 }) {
   let where = [];
   let params = [];
   if (query) {
@@ -360,6 +382,7 @@ function searchFundingNews({ query, source, page = 1, limit = 50 }) {
     params.push(q, q, q, q);
   }
   if (source) { where.push(`source = ?`); params.push(source); }
+  if (country) { where.push(`country = ?`); params.push(country); }
   const whereClause = where.length > 0 ? `WHERE ${where.join(' AND ')}` : '';
   const offset = (page - 1) * limit;
   const totalRow = queryOne(`SELECT COUNT(*) as total FROM funding_news ${whereClause}`, params);

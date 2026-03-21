@@ -2,8 +2,9 @@ const puppeteer = require('puppeteer');
 const { upsertInvestor, logScrape, updateScrapeLog, insertFundingRound } = require('../database');
 
 // Regex patterns to extract funding info from article text
-const AMOUNT_PATTERN = /\$[\d.,]+\s*(?:million|mn|m|billion|bn|b|cr|crore|lakh|k)\b/gi;
+const AMOUNT_PATTERN = /(?:INR|Rs\.?|USD|\$|US\$|S\$|SGD)?\s*[\d.,]+\s*(?:million|mn|m|billion|bn|b|cr|crore|lakh|k|Cr|Mn|Bn)\b/gi;
 const ROUND_PATTERN = /\b(seed|pre-seed|series\s*[a-f]|angel|bridge|pre-series\s*[a-f]|growth|debt|venture|ipo|late[\s-]stage|early[\s-]stage)\b/gi;
+const VALUATION_PATTERN = /(?:valued?\s+at|valuation\s+(?:of|at|around|near|approximately)?)\s*(?:INR|Rs\.?|USD|\$|US\$|S\$|SGD)?\s*[\d.,]+\s*(?:million|mn|m|billion|bn|b|cr|crore|Cr|Mn|Bn)\b/gi;
 const SECTOR_KEYWORDS = [
   'fintech', 'edtech', 'healthtech', 'medtech', 'agritech', 'foodtech',
   'proptech', 'insurtech', 'legaltech', 'hrtech', 'martech', 'adtech',
@@ -223,6 +224,23 @@ class Inc42Scraper {
     // Determine the stage from round type
     const stage = roundType ? mapRoundToStage(roundType) : null;
 
+    // Extract valuation
+    const valuationMatches = text.match(VALUATION_PATTERN) || [];
+    let valuation = null;
+    let valuationMultiple = null;
+    if (valuationMatches.length > 0) {
+      valuation = valuationMatches[0].replace(/valued?\s+at|valuation\s+(?:of|at|around|near|approximately)?/i, '').trim();
+      if (valuation && amount) {
+        valuationMultiple = calcMultiple(amount, valuation);
+      }
+    }
+
+    // Detect country - Inc42 is India-focused
+    let country = 'India';
+    if (/\b(singapore|singaporean)\b/i.test(text)) country = 'Singapore';
+    else if (/\b(indonesia|indonesian|jakarta)\b/i.test(text)) country = 'Indonesia';
+    else if (/\b(vietnam|vietnamese)\b/i.test(text)) country = 'Vietnam';
+
     // Extract sectors
     const detectedSectors = SECTOR_KEYWORDS.filter(keyword =>
       new RegExp(`\\b${keyword.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i').test(text)
@@ -321,6 +339,9 @@ class Inc42Scraper {
             round_type: roundType,
             investors: [...foundNames].join(', '),
             sector: sector,
+            valuation: valuation,
+            valuation_multiple: valuationMultiple,
+            country: country,
             date_reported: articleDate || null,
             source: 'inc42',
             source_url: sourceUrl
@@ -430,6 +451,24 @@ function isCommonWord(name) {
     'Earlier This', 'Said In', 'The Report', 'Going Forward', 'Looking At'
   ]);
   return commonWords.has(name) || name.split(' ').length > 6 || name.length < 3;
+}
+
+function parseToNumber(str) {
+  if (!str) return null;
+  const cleaned = str.replace(/[^\d.,a-zA-Z\s]/g, '').trim();
+  const m = cleaned.match(/([\d.,]+)\s*(million|mn|m|billion|bn|b|cr|crore|lakh|k|Cr|Mn|Bn)/i);
+  if (!m) return null;
+  const num = parseFloat(m[1].replace(/,/g, ''));
+  const unit = m[2].toLowerCase();
+  const mult = { million: 1e6, mn: 1e6, m: 1e6, billion: 1e9, bn: 1e9, b: 1e9, cr: 1.2e7, crore: 1.2e7, lakh: 1.2e5, k: 1e3 };
+  return num * (mult[unit] || 1);
+}
+
+function calcMultiple(amountStr, valuationStr) {
+  const a = parseToNumber(amountStr);
+  const v = parseToNumber(valuationStr);
+  if (!a || !v || a === 0) return null;
+  return `${(v / a).toFixed(1)}x`;
 }
 
 function delay(ms) {
