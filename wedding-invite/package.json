@@ -1,0 +1,19 @@
+{
+  "name": "wedding-invite",
+  "version": "1.0.0",
+  "private": true,
+  "description": "A one-file-to-edit wedding / engagement invite site: static, fast, WhatsApp-preview ready.",
+  "type": "module",
+  "scripts": {
+    "dev": "node scripts/dev.mjs",
+    "sync": "node scripts/sync-meta.mjs",
+    "og": "node scripts/og.mjs",
+    "prerender": "node scripts/prerender.mjs",
+    "shots": "node scripts/shots.mjs",
+    "build": "npm run sync && npm run og && npm run prerender",
+    "check": "npm run build && npm run shots"
+  },
+  "devDependencies": {
+    "playwright": "^1.56.0"
+  }
+}

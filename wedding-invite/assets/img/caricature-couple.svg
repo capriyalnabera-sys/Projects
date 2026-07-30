@@ -1,0 +1,48 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 640" width="640" height="640" role="img" aria-label="Placeholder illustration of a couple">
+  <defs>
+    <clipPath id="arch-couple">
+      <path d="M60 320a260 260 0 0 1 520 0v260H60Z"/>
+    </clipPath>
+  </defs>
+
+  <g clip-path="url(#arch-couple)">
+    <rect width="640" height="640" fill="#F3E7D4"/>
+    <circle cx="320" cy="296" r="206" fill="#EBD9BF"/>
+    <path d="M118 300a202 202 0 0 1 404 0" fill="none" stroke="#D9922F" stroke-width="3" opacity=".7"/>
+
+    <g fill="none" stroke="#211A16" stroke-width="4.5" stroke-linecap="round" stroke-linejoin="round">
+      <!-- left figure: shoulders, neck, head, hair -->
+      <path d="M104 600c0-92 60-146 134-146s134 54 134 146"/>
+      <path d="M238 388v72"/>
+      <path d="M183 302c0-35 24-61 55-61s55 26 55 61-24 77-55 77-55-42-55-77Z"/>
+      <path d="M172 306c-5-58 27-98 66-98s71 40 66 98"/>
+      <path d="M170 312c-13 27-8 62 10 77M304 312c13 27 8 62-10 77"/>
+      <path d="M210 306c5-6 14-6 19 0M248 306c5-6 14-6 19 0"/>
+      <path d="M215 336c11 11 35 11 46 0" stroke="#C2452D"/>
+      <!-- dupatta line -->
+      <path d="M164 600c14-56 44-96 74-110" stroke="#C2452D" stroke-width="3"/>
+
+      <!-- right figure -->
+      <path d="M268 600c0-92 60-146 134-146s134 54 134 146"/>
+      <path d="M402 392v66"/>
+      <path d="M351 314c0-34 23-59 51-59s51 25 51 59-23 77-51 77-51-43-51-77Z"/>
+      <path d="M348 300c3-37 26-56 54-56s51 19 54 56"/>
+      <path d="M348 300c17-11 35-16 54-16s37 5 54 16"/>
+      <path d="M374 308c6-5 15-5 21 0M410 308c6-5 15-5 21 0"/>
+      <path d="M382 338c11 10 30 10 41 0" stroke="#C2452D"/>
+      <path d="M356 328c3 35 21 64 46 64s43-29 46-64" stroke="#6F6257" stroke-width="3"/>
+      <!-- collar -->
+      <path d="M402 458l-24 40M402 458l24 40" stroke-width="3.5"/>
+    </g>
+  </g>
+
+  <path d="M60 320a260 260 0 0 1 520 0v260H60Z" fill="none" stroke="#C2452D" stroke-width="3"/>
+
+  <g fill="#D9922F">
+    <circle cx="126" cy="252" r="10"/>
+    <circle cx="514" cy="252" r="10"/>
+    <circle cx="94" cy="474" r="7"/>
+    <circle cx="546" cy="474" r="7"/>
+    <circle cx="320" cy="146" r="8"/>
+  </g>
+</svg>

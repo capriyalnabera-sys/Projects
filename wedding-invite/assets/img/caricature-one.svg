@@ -1,0 +1,35 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 600" width="480" height="600" role="img" aria-label="Placeholder portrait illustration">
+  <defs>
+    <clipPath id="arch-one">
+      <path d="M40 240a200 200 0 0 1 400 0v320H40Z"/>
+    </clipPath>
+  </defs>
+
+  <g clip-path="url(#arch-one)">
+    <rect width="480" height="600" fill="#F3E7D4"/>
+    <circle cx="240" cy="248" r="152" fill="#EBD9BF"/>
+
+    <g fill="none" stroke="#211A16" stroke-width="4" stroke-linecap="round" stroke-linejoin="round">
+      <!-- shoulders, then neck, then head on top -->
+      <path d="M138 580c0-84 46-134 102-134s102 50 102 134"/>
+      <path d="M240 352v96"/>
+      <path d="M172 258c0-44 30-76 68-76s68 32 68 76-30 96-68 96-68-52-68-96Z"/>
+      <path d="M158 262c-6-72 34-122 82-122s88 50 82 122"/>
+      <path d="M156 268c-16 34-10 78 12 96M324 268c16 34 10 78-12 96"/>
+      <path d="M206 262c6-8 18-8 24 0M250 262c6-8 18-8 24 0"/>
+      <path d="M212 300c14 14 44 14 58 0" stroke="#C2452D"/>
+      <!-- dupatta -->
+      <path d="M180 580c8-52 30-90 56-104" stroke="#C2452D" stroke-width="3"/>
+      <path d="M300 580c-8-52-30-90-56-104" stroke="#C2452D" stroke-width="3"/>
+    </g>
+  </g>
+
+  <path d="M40 240a200 200 0 0 1 400 0v320H40Z" fill="none" stroke="#C2452D" stroke-width="3"/>
+
+  <g fill="#D9922F">
+    <circle cx="112" cy="196" r="9"/>
+    <circle cx="368" cy="196" r="9"/>
+    <circle cx="88" cy="436" r="6"/>
+    <circle cx="392" cy="436" r="6"/>
+  </g>
+</svg>

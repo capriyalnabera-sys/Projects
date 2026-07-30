@@ -1,0 +1,5 @@
+node_modules/
+screenshots/
+.og-tmp.html
+.vercel
+.DS_Store
