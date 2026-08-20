@@ -240,7 +240,10 @@ function drawTable(resource) {
     cols.forEach(c => html += `<td><div class="cellwrap">${cell(c, r)}</div></td>`);
     computed.forEach(c => html += `<td>${money(r[c.key]) || '—'}</td>`);
     if (isGuests) {
-      html += `<td><button class="btn small" onclick="event.stopPropagation(); copyInvite('${r.invite_token}')">🔗 Copy</button></td>`;
+      html += `<td><div style="display:flex;gap:6px">
+        <button class="btn small" onclick="event.stopPropagation(); waInvite(${r.id})" title="Send invite on WhatsApp">💬 WhatsApp</button>
+        <button class="btn small" onclick="event.stopPropagation(); copyInvite('${r.invite_token}')" title="Copy invite link">🔗</button>
+      </div></td>`;
     }
     html += `<td class="actions">
       <button class="btn small" onclick="openForm('${resource}', ${r.id})">Edit</button>
@@ -287,6 +290,7 @@ async function openForm(resource, id) {
       const link = `${location.origin}/i/${row.invite_token}`;
       body += `<div class="field"><label>Personalised invite link</label>
         <div class="link-box"><code id="lnk">${esc(link)}</code>
+        <button class="btn small" type="button" onclick="waInvite(${id})">💬 WhatsApp</button>
         <button class="btn small" type="button" onclick="copyInvite('${row.invite_token}')">Copy</button></div></div>`;
     }
   }
@@ -366,6 +370,29 @@ function copyInvite(token) {
   });
 }
 
+function inviteMessage(name, token) {
+  const s = state.settings || {};
+  const link = `${location.origin}/i/${token}`;
+  const tpl = s.invite_message_template || 'Dear {name}, here is your wedding invitation: {link}';
+  return tpl
+    .replace(/{name}/g, name || 'there')
+    .replace(/{link}/g, link)
+    .replace(/{bride}/g, s.bride_name || '')
+    .replace(/{groom}/g, s.groom_name || '')
+    .replace(/{date}/g, s.wedding_date ? formatDate(s.wedding_date) : '')
+    .replace(/{hashtag}/g, s.hashtag || '');
+}
+
+// Open WhatsApp with a pre-filled personalised invite for this guest.
+function waInvite(id) {
+  const g = (state.rows || []).find(r => String(r.id) === String(id));
+  if (!g) { toast('Guest not found'); return; }
+  if (!g.invite_token) { toast('No invite link yet — save the guest first'); return; }
+  const digits = (g.phone || '').replace(/\D/g, '');
+  const url = `https://wa.me/${digits}?text=${encodeURIComponent(inviteMessage(g.name, g.invite_token))}`;
+  window.open(url, '_blank', 'noopener');
+}
+
 function closeModal() { $('#modalBack').classList.remove('open'); }
 $('#modalBack')?.addEventListener('click', e => { if (e.target.id === 'modalBack') closeModal(); });
 
@@ -383,6 +410,7 @@ async function renderSettings() {
     ['tagline', 'Tagline', 'text'],
     ['hashtag', 'Hashtag', 'text'],
     ['cover_message', 'Invite welcome message', 'textarea'],
+    ['invite_message_template', 'WhatsApp invite message — placeholders: {name} {link} {bride} {groom} {date} {hashtag}', 'textarea'],
     ['rsvp_deadline', 'RSVP by', 'date'],
     ['contact_name', 'Contact person', 'text'],
     ['contact_phone', 'Contact phone', 'text'],
@@ -399,7 +427,7 @@ async function renderSettings() {
 }
 
 async function saveSettings() {
-  const keys = ['bride_name', 'groom_name', 'couple_initials', 'wedding_date', 'tagline', 'hashtag', 'cover_message', 'rsvp_deadline', 'contact_name', 'contact_phone'];
+  const keys = ['bride_name', 'groom_name', 'couple_initials', 'wedding_date', 'tagline', 'hashtag', 'cover_message', 'invite_message_template', 'rsvp_deadline', 'contact_name', 'contact_phone'];
   const body = {};
   keys.forEach(k => { const el = document.getElementById('s_' + k); if (el) body[k] = el.value; });
   state.settings = await api('/settings', 'PUT', body);

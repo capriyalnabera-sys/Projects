@@ -352,6 +352,8 @@ const DEFAULT_SETTINGS = {
   contact_name: '',
   contact_phone: '',
   rsvp_deadline: '',
+  invite_message_template:
+    'Dear {name}, 🌸\n\nWith great joy, {bride} & {groom} — together with their families — invite you to celebrate their wedding on {date}.\n\nHere is your personal invitation with all the details and to RSVP:\n{link}\n\nWe would be so happy to have you with us! 💕\n{hashtag}',
 };
 
 function seedSettings() {
