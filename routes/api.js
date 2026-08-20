@@ -6,6 +6,7 @@ const express = require('express');
 const router = express.Router();
 const db = require('../db');
 const { buildWorkbook } = require('../sheets');
+const sync = require('../sheets-sync');
 
 const RESOURCES = Object.keys(db.SCHEMA);
 function isResource(name) { return RESOURCES.includes(name); }
@@ -51,6 +52,23 @@ router.get('/export.xlsx', async (req, res) => {
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
+});
+
+// ---- Two-way Google Sheets sync ----
+router.get('/sync/status', (req, res) => res.json(sync.status()));
+
+router.post('/sync/push', async (req, res) => {
+  try {
+    const proto = req.headers['x-forwarded-proto'] || req.protocol;
+    const baseUrl = `${proto}://${req.get('host')}`;
+    res.json({ ok: true, result: await sync.push(baseUrl) });
+  } catch (e) { res.status(400).json({ ok: false, error: e.message }); }
+});
+
+router.post('/sync/pull', async (req, res) => {
+  try {
+    res.json({ ok: true, result: await sync.pull() });
+  } catch (e) { res.status(400).json({ ok: false, error: e.message }); }
 });
 
 // ---- CSV export for the Google Sheets mirror / backup ----

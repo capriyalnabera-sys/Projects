@@ -1,6 +1,13 @@
 node_modules/
 wedding.db
 .env
+.env.*
+!.env.example
+# Never commit Google service-account keys
+service-account*.json
+google-service-account*.json
+*-service-account*.json
+credentials*.json
 *.log
 .DS_Store
 Thumbs.db

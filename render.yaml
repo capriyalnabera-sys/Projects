@@ -1,0 +1,27 @@
+# One-click deploy to Render (https://render.com).
+# In Render: New + -> Blueprint -> connect this repo -> it reads this file.
+# A persistent disk keeps wedding.db across restarts/deploys.
+services:
+  - type: web
+    name: wedding-ap
+    runtime: node
+    plan: free
+    branch: Wedding_AP
+    buildCommand: npm install
+    startCommand: node server.js
+    envVars:
+      - key: ADMIN_PASSWORD
+        sync: false          # set your own planner password in the dashboard
+      - key: SESSION_SECRET
+        generateValue: true  # Render generates a random secret
+      - key: WEDDING_DB
+        value: /data/wedding.db
+      # Optional - only needed for 2-way Google Sheets sync:
+      - key: GOOGLE_SHEET_ID
+        sync: false
+      - key: GOOGLE_SERVICE_ACCOUNT_JSON
+        sync: false
+    disk:
+      name: wedding-data
+      mountPath: /data
+      sizeGB: 1

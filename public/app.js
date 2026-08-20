@@ -85,7 +85,7 @@ async function renderDashboard() {
   $('#pageTitle').textContent = 'Dashboard';
   $('#pageHint').textContent = 'Your wedding at a glance';
   $('#addBtn').style.display = 'none';
-  const d = await api('/dashboard');
+  const [d, syncStatus] = await Promise.all([api('/dashboard'), api('/sync/status').catch(() => ({ configured: false }))]);
   const s = d.settings;
   let daysHtml = '';
   if (s.wedding_date) {
@@ -137,6 +137,7 @@ async function renderDashboard() {
     </div>
     <p class="section-help" style="margin-top:22px">Tip: start with <b>Functions</b> (your events), then add <b>Guests</b> and send them their personalised invite links from the Guests tab.</p>
     <p class="section-help" style="margin-top:-8px">Backup anytime with <b>⬇ Excel</b> (top-right) — one workbook with every module as a tab, ready to open or import into Google Sheets.</p>
+    ${syncPanel(syncStatus)}
   `;
 }
 
@@ -145,6 +146,47 @@ function formatDate(d) {
   const dt = new Date(d + (d.length === 10 ? 'T00:00:00' : ''));
   if (isNaN(dt)) return d;
   return dt.toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' });
+}
+
+function syncPanel(st) {
+  if (st && st.configured) {
+    return `<div class="card" style="grid-column:1/-1;margin-top:8px">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap">
+        <div>
+          <div class="k">🔄 Google Sheets sync — connected</div>
+          <div class="sub">${st.sheetUrl ? `<a href="${esc(st.sheetUrl)}" target="_blank" rel="noopener">Open the Sheet</a> · ` : ''}service account: ${esc(st.serviceAccount || '')}</div>
+        </div>
+        <div style="display:flex;gap:8px">
+          <button class="btn small primary" onclick="syncPush(this)">⬆ Push to Sheet</button>
+          <button class="btn small" onclick="syncPull(this)">⬇ Pull from Sheet</button>
+        </div>
+      </div></div>`;
+  }
+  return `<div class="card" style="grid-column:1/-1;margin-top:8px">
+    <div class="k">🔄 Google Sheets sync — not set up</div>
+    <div class="sub">Add a Google service account and a Sheet ID (env: <code>GOOGLE_SHEET_ID</code>, <code>GOOGLE_SERVICE_ACCOUNT_JSON</code>) to enable two-way sync. See the README. Until then, use <b>⬇ Excel</b> above.</div>
+  </div>`;
+}
+
+async function syncPush(btn) {
+  if (btn) { btn.disabled = true; btn.textContent = 'Pushing…'; }
+  try {
+    const r = await api('/sync/push', 'POST', {});
+    toast(`Pushed ${r.result.pushed} tabs to Google Sheets`);
+  } catch (e) { toast('Push failed: ' + e.message); }
+  if (btn) { btn.disabled = false; btn.textContent = '⬆ Push to Sheet'; }
+}
+
+async function syncPull(btn) {
+  if (!confirm('Pull changes from the Google Sheet into the planner? This updates rows by their ID.')) return;
+  if (btn) { btn.disabled = true; btn.textContent = 'Pulling…'; }
+  try {
+    const r = await api('/sync/pull', 'POST', {});
+    const n = Object.values(r.result).reduce((a, x) => a + x.updated + x.created, 0);
+    toast(n ? `Pulled ${n} change(s) from Google Sheets` : 'Sheet already in sync');
+    state.refCache = {};
+  } catch (e) { toast('Pull failed: ' + e.message); }
+  if (btn) { btn.disabled = false; btn.textContent = '⬇ Pull from Sheet'; }
 }
 
 // ---- generic resource table ----

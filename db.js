@@ -10,7 +10,10 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 
-const DB_PATH = path.join(__dirname, 'wedding.db');
+// Honour WEDDING_DB so a deployment can point at a persistent disk.
+const DB_PATH = process.env.WEDDING_DB
+  ? path.resolve(process.env.WEDDING_DB)
+  : path.join(__dirname, 'wedding.db');
 
 let db = null;
 let SQL = null;
