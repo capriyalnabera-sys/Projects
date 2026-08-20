@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Wedding_AP · Sign in</title>
+  <link rel="stylesheet" href="/styles.css" />
+  <style>
+    body { display: flex; align-items: center; justify-content: center; min-height: 100vh; }
+    .login { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius);
+      box-shadow: var(--shadow); padding: 34px 30px; width: 100%; max-width: 360px; text-align: center; }
+    .login .initials { font-family: Georgia, serif; font-size: 40px; color: var(--accent); }
+    .login p { color: var(--muted); font-size: 14px; margin: 4px 0 22px; }
+    .login .field { text-align: left; margin-bottom: 16px; }
+    .err { color: var(--red); font-size: 13px; min-height: 18px; margin-top: 4px; }
+  </style>
+</head>
+<body>
+  <form class="login" onsubmit="return doLogin(event)">
+    <div class="initials">A&nbsp;&amp;&nbsp;P</div>
+    <p>The wedding planner</p>
+    <div class="field">
+      <label>Password</label>
+      <input type="password" id="pw" autofocus placeholder="Enter planner password" />
+    </div>
+    <button class="btn primary" style="width:100%" type="submit">Sign in</button>
+    <div class="err" id="err"></div>
+  </form>
+  <script>
+    async function doLogin(e) {
+      e.preventDefault();
+      const password = document.getElementById('pw').value;
+      const r = await fetch('/api/login', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ password })
+      });
+      if (r.ok) { location.href = '/'; }
+      else { document.getElementById('err').textContent = 'Incorrect password. Try again.'; }
+      return false;
+    }
+  </script>
+</body>
+</html>

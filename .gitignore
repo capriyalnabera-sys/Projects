@@ -1,5 +1,5 @@
 node_modules/
-investor_database.db
+wedding.db
 .env
 *.log
 .DS_Store

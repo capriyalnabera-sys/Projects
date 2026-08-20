@@ -1,269 +1,48 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Asia Startup Funding Tracker - India & Singapore</title>
-  <link rel="stylesheet" href="styles.css">
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Wedding_AP · Planner</title>
+  <link rel="stylesheet" href="/styles.css" />
 </head>
 <body>
-  <header>
-    <div class="header-content">
-      <div class="header-left">
-        <div class="logo">
-          <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>
-        </div>
-        <div>
-          <h1>Asia Startup Funding Tracker</h1>
-          <p class="header-subtitle">Live funding intelligence from India & Singapore</p>
-        </div>
+  <div class="layout">
+    <aside class="sidebar" id="sidebar">
+      <div class="brand">
+        <div class="initials" id="brandInitials">A &amp; P</div>
+        <div class="sub" id="brandSub">Wedding planner</div>
       </div>
-      <div class="header-actions">
-        <!-- Country Toggle -->
-        <div class="country-toggle">
-          <button class="country-btn active" data-country="">All Asia</button>
-          <button class="country-btn" data-country="India">
-            <span class="flag">🇮🇳</span> India
-          </button>
-          <button class="country-btn" data-country="Singapore">
-            <span class="flag">🇸🇬</span> Singapore
-          </button>
-        </div>
-        <div class="dropdown">
-          <button class="btn btn-primary" id="btnScrape">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4v5h5"/><path d="M20 20v-5h-5"/><path d="M4 9A8 8 0 0 1 20 9"/><path d="M20 15A8 8 0 0 1 4 15"/></svg>
-            Scrape News
-          </button>
-          <div class="dropdown-menu" id="scrapeMenu">
-            <div class="dropdown-header">India Sources</div>
-            <a href="#" data-source="inc42">Inc42</a>
-            <a href="#" data-source="yourstory">YourStory</a>
-            <a href="#" data-source="livemint">LiveMint</a>
-            <a href="#" data-source="vccircle">VCCircle</a>
-            <a href="#" data-source="entrackr">Entrackr</a>
-            <div class="dropdown-header">Singapore / SEA Sources</div>
-            <a href="#" data-source="e27">e27</a>
-            <a href="#" data-source="techinasia">TechInAsia</a>
-            <a href="#" data-source="dealstreetasia">DealStreetAsia</a>
-            <div class="dropdown-divider"></div>
-            <a href="#" data-source="all"><strong>Scrape All Sources</strong></a>
+      <nav class="nav" id="nav"></nav>
+    </aside>
+
+    <main class="main">
+      <div class="topbar">
+        <div style="display:flex; align-items:center; gap:12px;">
+          <button class="btn small menu-btn" onclick="document.getElementById('sidebar').classList.toggle('open')">☰</button>
+          <div>
+            <h1 id="pageTitle">Dashboard</h1>
+            <div class="hint" id="pageHint"></div>
           </div>
         </div>
-        <button id="btnSeedData" class="btn btn-secondary" title="Seed curated investor data">Seed Data</button>
-        <button id="btnAddInvestor" class="btn btn-secondary">+ Add Investor</button>
-        <div class="dropdown">
-          <button class="btn btn-outline">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7,10 12,15 17,10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-            Export
-          </button>
-          <div class="dropdown-menu">
-            <a href="/api/export/csv" download>Export CSV</a>
-            <a href="/api/export" download>Export JSON</a>
-          </div>
+        <div style="display:flex; gap:10px;">
+          <button class="btn small" id="addBtn" style="display:none" onclick="openForm()">+ Add</button>
+          <button class="btn small ghost" onclick="logout()">Sign out</button>
         </div>
       </div>
-    </div>
-  </header>
+      <div class="content" id="content"></div>
+    </main>
+  </div>
 
-  <main>
-    <!-- Stats Cards -->
-    <section class="stats-row" id="statsRow">
-      <div class="stat-card">
-        <div class="stat-icon green">
-          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 1v22"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
-        </div>
-        <div class="stat-info">
-          <div class="stat-number" id="statRounds">-</div>
-          <div class="stat-label">Funding Deals</div>
-        </div>
-      </div>
-      <div class="stat-card">
-        <div class="stat-icon amber">
-          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14,2 14,8 20,8"/></svg>
-        </div>
-        <div class="stat-info">
-          <div class="stat-number" id="statNews">-</div>
-          <div class="stat-label">News Articles</div>
-        </div>
-      </div>
-      <div class="stat-card">
-        <div class="stat-icon blue">
-          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
-        </div>
-        <div class="stat-info">
-          <div class="stat-number" id="statTotal">-</div>
-          <div class="stat-label">Investors Tracked</div>
-        </div>
-      </div>
-      <div class="stat-card">
-        <div class="stat-icon purple">
-          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12,6 12,12 16,14"/></svg>
-        </div>
-        <div class="stat-info">
-          <div class="stat-number" id="statLastScrape">-</div>
-          <div class="stat-label">Last Updated</div>
-        </div>
-      </div>
-      <div class="stat-card">
-        <div class="stat-icon teal">
-          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14"/><path d="M5 12h14"/></svg>
-        </div>
-        <div class="stat-info">
-          <div class="stat-number" id="statNewToday">-</div>
-          <div class="stat-label">New Today</div>
-        </div>
-      </div>
-    </section>
-
-    <!-- Tabs -->
-    <div class="tabs">
-      <button class="tab active" data-tab="news">Funding News</button>
-      <button class="tab" data-tab="rounds">Deal Tracker</button>
-      <button class="tab" data-tab="all">Investors</button>
-      <button class="tab" data-tab="new">New Investors</button>
-      <button class="tab" data-tab="logs">Scrape Logs</button>
-    </div>
-
-    <!-- Funding News Tab (Default) -->
-    <section id="tabNews">
-      <div class="news-filters">
-        <div class="search-box">
-          <svg class="search-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-          <input type="text" id="newsSearchInput" placeholder="Search startups, investors, sectors..." />
-        </div>
-        <div class="filter-group">
-          <select id="newsSourceFilter">
-            <option value="">All Sources</option>
-            <optgroup label="India">
-              <option value="inc42">Inc42</option>
-              <option value="yourstory">YourStory</option>
-              <option value="livemint">LiveMint</option>
-              <option value="vccircle">VCCircle</option>
-              <option value="entrackr">Entrackr</option>
-            </optgroup>
-            <optgroup label="Singapore / SEA">
-              <option value="e27">e27</option>
-              <option value="techinasia">TechInAsia</option>
-              <option value="dealstreetasia">DealStreetAsia</option>
-            </optgroup>
-          </select>
-        </div>
-      </div>
-      <div class="news-grid" id="newsGrid">
-        <div class="empty-state">Loading funding news...</div>
-      </div>
-      <div class="pagination" id="newsPagination"></div>
-    </section>
-
-    <!-- Deal Tracker Tab -->
-    <section class="table-container hidden" id="tabRounds">
-      <table id="roundsTable">
-        <thead>
-          <tr>
-            <th>Startup</th>
-            <th>Country</th>
-            <th>Amount Raised</th>
-            <th>Round</th>
-            <th>Valuation</th>
-            <th>Multiple</th>
-            <th>Investors</th>
-            <th>Sector</th>
-            <th>Date</th>
-            <th>Source</th>
-          </tr>
-        </thead>
-        <tbody id="roundsTableBody">
-          <tr><td colspan="10" class="empty-state">Loading...</td></tr>
-        </tbody>
-      </table>
-      <div class="pagination" id="roundsPagination"></div>
-    </section>
-
-    <!-- Investor Table -->
-    <section class="hidden" id="investorFiltersSection">
-      <div class="filters-bar" id="filtersBar">
-        <div class="search-box">
-          <svg class="search-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-          <input type="text" id="searchInput" placeholder="Search investors, institutions, sectors..." />
-        </div>
-        <div class="filter-group">
-          <select id="filterSector"><option value="">All Sectors</option></select>
-          <select id="filterStage"><option value="">All Stages</option></select>
-          <select id="filterGeography"><option value="">All Geographies</option></select>
-          <select id="filterSource"><option value="">All Sources</option></select>
-          <button id="btnClearFilters" class="btn btn-sm">Clear</button>
-        </div>
-      </div>
-    </section>
-
-    <section class="table-container hidden" id="tabAll">
-      <table id="investorTable">
-        <thead>
-          <tr>
-            <th class="sortable" data-sort="name">Name</th>
-            <th class="sortable" data-sort="institution">Institution</th>
-            <th>Title</th>
-            <th>Avg Cheque</th>
-            <th>Geographies</th>
-            <th>Sectors</th>
-            <th class="sortable" data-sort="stage">Stage</th>
-            <th>Shareholding</th>
-            <th>Email</th>
-            <th>Website</th>
-            <th>Source</th>
-            <th class="sortable" data-sort="date_added">Added</th>
-            <th>Actions</th>
-          </tr>
-        </thead>
-        <tbody id="investorTableBody">
-          <tr><td colspan="13" class="empty-state">Loading...</td></tr>
-        </tbody>
-      </table>
-      <div class="pagination" id="pagination"></div>
-    </section>
-
-    <!-- Scrape Logs Tab -->
-    <section class="table-container hidden" id="tabLogs">
-      <table id="logsTable">
-        <thead><tr><th>Source</th><th>Started</th><th>Finished</th><th>Status</th><th>Records</th><th>New</th><th>Error</th></tr></thead>
-        <tbody id="logsTableBody"><tr><td colspan="7" class="empty-state">Loading...</td></tr></tbody>
-      </table>
-    </section>
-  </main>
-
-  <!-- Add/Edit Modal -->
-  <div class="modal-overlay hidden" id="investorModal">
+  <div class="modal-back" id="modalBack">
     <div class="modal">
-      <div class="modal-header">
-        <h2 id="modalTitle">Add Investor</h2>
-        <button class="modal-close" id="modalClose">&times;</button>
-      </div>
-      <form id="investorForm">
-        <input type="hidden" id="formId" />
-        <div class="form-grid">
-          <div class="form-group"><label>Name *</label><input type="text" id="formName" required /></div>
-          <div class="form-group"><label>Institution</label><input type="text" id="formInstitution" /></div>
-          <div class="form-group"><label>Title</label><input type="text" id="formTitle" /></div>
-          <div class="form-group"><label>Avg Cheque Size</label><input type="text" id="formCheque" placeholder="e.g. $500K - $2M" /></div>
-          <div class="form-group"><label>Geographies</label><input type="text" id="formGeographies" placeholder="e.g. India, Singapore" /></div>
-          <div class="form-group"><label>Sectors</label><input type="text" id="formSectors" placeholder="e.g. fintech, saas" /></div>
-          <div class="form-group"><label>Stage</label>
-            <select id="formStage"><option value="">Select...</option><option>Pre-Seed</option><option>Seed</option><option>Angel</option><option>Series A</option><option>Series B</option><option>Series C</option><option>Series D+</option><option>Growth</option><option>Bridge</option><option>Debt</option></select>
-          </div>
-          <div class="form-group"><label>Shareholding</label><input type="text" id="formShareholding" placeholder="e.g. 10-15%" /></div>
-          <div class="form-group"><label>Email</label><input type="email" id="formEmail" /></div>
-          <div class="form-group"><label>Website</label><input type="url" id="formWebsite" placeholder="https://..." /></div>
-          <div class="form-group full-width"><label>Notes</label><textarea id="formNotes" rows="3"></textarea></div>
-        </div>
-        <div class="form-actions">
-          <button type="button" class="btn btn-outline" id="btnCancelForm">Cancel</button>
-          <button type="submit" class="btn btn-primary">Save</button>
-        </div>
-      </form>
+      <header><h2 id="modalTitle">Edit</h2><button class="btn ghost small" onclick="closeModal()">✕</button></header>
+      <div class="body" id="modalBody"></div>
+      <div class="footer" id="modalFooter"></div>
     </div>
   </div>
 
-  <div class="toast hidden" id="toast"></div>
-  <script src="app.js"></script>
+  <div class="toast" id="toast"></div>
+  <script src="/app.js"></script>
 </body>
 </html>

@@ -1,18 +1,16 @@
 {
-  "name": "investor-tracker",
+  "name": "wedding-ap",
   "version": "1.0.0",
-  "description": "Startup Investor Database - Scans and aggregates investor data from multiple sources",
+  "description": "Wedding_AP - An all-in-one wedding planning tracker with a personalized invite site",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "scrape": "node run-scraper.js",
-    "dev": "node server.js"
+    "dev": "node server.js",
+    "seed": "node seed.js"
   },
   "dependencies": {
-    "sql.js": "^1.11.0",
     "cors": "^2.8.5",
     "express": "^4.21.0",
-    "node-cron": "^3.0.3",
-    "puppeteer": "^23.8.0"
+    "sql.js": "^1.11.0"
   }
 }
