@@ -22,11 +22,11 @@ function futureDate(daysFromNow) {
   const WED = 45; // wedding day is 45 days out
 
   db.setSettings({
-    bride_name: 'Ananya',
-    groom_name: 'Pranav',
+    bride_name: 'Akansha',
+    groom_name: 'Priyal',
     couple_initials: 'A & P',
     wedding_date: futureDate(WED),
-    hashtag: '#AnanyaWedsPranav',
+    hashtag: '#AkanshaWedsPriyal',
     tagline: 'Two souls, one beautiful journey',
     cover_message: 'Together with our families, we joyfully invite you to share in our happiness as we begin our new life together.',
     rsvp_deadline: futureDate(WED - 14),
@@ -80,10 +80,10 @@ function futureDate(daysFromNow) {
   ].forEach(b => db.create('budget_items', b));
 
   [
-    { title: 'Finalise guest list & counts', category: 'Guests', owner: 'Ananya', due_date: futureDate(WED - 30), priority: 'High', status: 'In progress' },
+    { title: 'Finalise guest list & counts', category: 'Guests', owner: 'Akansha', due_date: futureDate(WED - 30), priority: 'High', status: 'In progress' },
     { title: 'Book mehndi artist', category: 'Decor', owner: 'Priya', due_date: futureDate(WED - 20), priority: 'Medium', status: 'To do' },
     { title: 'Send out invite links', category: 'Invitations', owner: 'Rohan', due_date: futureDate(WED - 21), priority: 'High', status: 'To do' },
-    { title: 'Confirm room block with hotel', category: 'Logistics', owner: 'Pranav', due_date: futureDate(WED - 25), priority: 'High', status: 'Done' },
+    { title: 'Confirm room block with hotel', category: 'Logistics', owner: 'Priyal', due_date: futureDate(WED - 25), priority: 'High', status: 'Done' },
     { title: 'Pandit booking & muhurat', category: 'Rituals', owner: 'Family', due_date: futureDate(WED - 40), priority: 'High', status: 'Done' },
   ].forEach(t => db.create('tasks', t));
 
@@ -100,15 +100,15 @@ function futureDate(daysFromNow) {
   db.create('travel', { guest_id: guests[3].id, direction: 'Arrival', mode: 'Train', detail: 'Rajdhani', datetime: futureDate(WED - 2) + 'T08:00', location: 'KSR Bengaluru', pickup_needed: 1, coordinator: 'Vikram', status: 'Pending' });
 
   [
-    { title: 'Bride & bridesmaids opening', function_id: functions[2].id, performers: 'Ananya, Priya, Meera', song: 'Dola Re Dola', sequence: 1, duration: '4 min', status: 'Rehearsing' },
-    { title: 'Groom\'s squad', function_id: functions[2].id, performers: 'Pranav, Vikram, Rahul', song: 'The Breakup Song', sequence: 2, duration: '3 min', status: 'Idea' },
-    { title: 'Couple\'s dance', function_id: functions[2].id, performers: 'Ananya & Pranav', song: 'Tum Se Hi', sequence: 3, duration: '3 min', status: 'Idea' },
+    { title: 'Bride & bridesmaids opening', function_id: functions[2].id, performers: 'Akansha, Priya, Meera', song: 'Dola Re Dola', sequence: 1, duration: '4 min', status: 'Rehearsing' },
+    { title: 'Groom\'s squad', function_id: functions[2].id, performers: 'Priyal, Vikram, Rahul', song: 'The Breakup Song', sequence: 2, duration: '3 min', status: 'Idea' },
+    { title: 'Couple\'s dance', function_id: functions[2].id, performers: 'Akansha & Priyal', song: 'Tum Se Hi', sequence: 3, duration: '3 min', status: 'Idea' },
   ].forEach(p => db.create('dance_performances', p));
 
   [
-    { person: 'Ananya', function_id: functions[3].id, outfit: 'Red bridal lehenga', color: 'Red', status: 'To buy' },
-    { person: 'Pranav', function_id: functions[3].id, outfit: 'Ivory sherwani', color: 'Ivory', status: 'Ordered' },
-    { person: 'Ananya', function_id: functions[1].id, outfit: 'Yellow suit', color: 'Yellow', status: 'Ready' },
+    { person: 'Akansha', function_id: functions[3].id, outfit: 'Red bridal lehenga', color: 'Red', status: 'To buy' },
+    { person: 'Priyal', function_id: functions[3].id, outfit: 'Ivory sherwani', color: 'Ivory', status: 'Ordered' },
+    { person: 'Akansha', function_id: functions[1].id, outfit: 'Yellow suit', color: 'Yellow', status: 'Ready' },
   ].forEach(o => db.create('outfits', o));
 
   db.create('gifts_give', { occasion: 'Return gift (Reception)', recipient: 'All guests', item: 'Silver diya + sweets box', quantity: 200, cost: 400, status: 'To buy' });

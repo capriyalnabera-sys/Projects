@@ -81,7 +81,9 @@ router.get('/export/:resource.csv', (req, res) => {
   const header = ['id', ...cols];
   const esc = v => {
     if (v == null) return '';
-    const s = String(v).replace(/"/g, '""');
+    let s = String(v);
+    if (/^[=+\-@\t\r]/.test(s)) s = "'" + s;   // neutralise spreadsheet formula injection
+    s = s.replace(/"/g, '""');
     return /[",\n]/.test(s) ? `"${s}"` : s;
   };
   const lines = [header.join(',')];
@@ -109,13 +111,15 @@ router.get('/:resource/:id', (req, res) => {
 router.post('/:resource', (req, res) => {
   const { resource } = req.params;
   if (!isResource(resource)) return res.status(404).json({ error: 'Unknown resource' });
-  res.status(201).json(db.create(resource, req.body || {}));
+  try { res.status(201).json(db.create(resource, req.body || {})); }
+  catch (e) { res.status(e.status || 500).json({ error: e.message }); }
 });
 
 router.put('/:resource/:id', (req, res) => {
   const { resource, id } = req.params;
   if (!isResource(resource)) return res.status(404).json({ error: 'Unknown resource' });
-  res.json(db.update(resource, Number(id), req.body || {}));
+  try { res.json(db.update(resource, Number(id), req.body || {})); }
+  catch (e) { res.status(e.status || 500).json({ error: e.message }); }
 });
 
 router.delete('/:resource/:id', (req, res) => {

@@ -1,6 +1,8 @@
 /* Wedding_AP - planner front-end. Everything is driven by /api/schema. */
 
 const state = { schema: {}, settings: {}, view: 'dashboard', rows: [], filter: '', refCache: {} };
+let editingRow = null;
+function safeUrl(u) { return /^(https?:|mailto:)/i.test(String(u || '').trim()) ? u : '#'; }
 
 // ---- tiny helpers ----
 const $ = sel => document.querySelector(sel);
@@ -17,7 +19,7 @@ function toast(msg) {
   clearTimeout(t._t); t._t = setTimeout(() => t.classList.remove('show'), 2200);
 }
 function money(v) { const n = parseFloat(v); return isNaN(n) || n === 0 ? '' : '₹' + n.toLocaleString('en-IN'); }
-function esc(s) { return (s == null ? '' : String(s)).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
+function esc(s) { return (s == null ? '' : String(s)).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
 function slug(v) { return String(v || '').toLowerCase().trim(); }
 
 function displayName(resource, row) {
@@ -144,7 +146,7 @@ async function renderDashboard() {
 function formatDate(d) {
   if (!d) return '';
   const dt = new Date(d + (d.length === 10 ? 'T00:00:00' : ''));
-  if (isNaN(dt)) return d;
+  if (isNaN(dt)) return esc(d);
   return dt.toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' });
 }
 
@@ -154,7 +156,7 @@ function syncPanel(st) {
       <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap">
         <div>
           <div class="k">🔄 Google Sheets sync — connected</div>
-          <div class="sub">${st.sheetUrl ? `<a href="${esc(st.sheetUrl)}" target="_blank" rel="noopener">Open the Sheet</a> · ` : ''}service account: ${esc(st.serviceAccount || '')}</div>
+          <div class="sub">${st.sheetUrl ? `<a href="${esc(safeUrl(st.sheetUrl))}" target="_blank" rel="noopener">Open the Sheet</a> · ` : ''}service account: ${esc(st.serviceAccount || '')}</div>
         </div>
         <div style="display:flex;gap:8px">
           <button class="btn small primary" onclick="syncPush(this)">⬆ Push to Sheet</button>
@@ -260,7 +262,7 @@ function cell(col, row) {
   if (col.type === 'money') return money(v) || '—';
   if (col.type === 'date') return v ? formatDate(v) : '';
   if (col.type === 'ref') return esc(refName(col.ref, v)) || '—';
-  if (col.type === 'select' && v) return `<span class="pill ${slug(v)}">${esc(v)}</span>`;
+  if (col.type === 'select' && v) return `<span class="pill ${esc(slug(v))}">${esc(v)}</span>`;
   return esc(v) || '';
 }
 
@@ -268,6 +270,7 @@ function cell(col, row) {
 async function openForm(resource, id) {
   const def = state.schema[resource];
   const row = id ? await api(`/${resource}/${id}`) : {};
+  editingRow = row;
   const refs = def.columns.filter(c => c.type === 'ref').map(c => c.ref);
   await Promise.all([...new Set(refs)].map(refList));
 
@@ -385,7 +388,7 @@ function inviteMessage(name, token) {
 
 // Open WhatsApp with a pre-filled personalised invite for this guest.
 function waInvite(id) {
-  const g = (state.rows || []).find(r => String(r.id) === String(id));
+  const g = (editingRow && String(editingRow.id) === String(id)) ? editingRow : (state.rows || []).find(r => String(r.id) === String(id));
   if (!g) { toast('Guest not found'); return; }
   if (!g.invite_token) { toast('No invite link yet — save the guest first'); return; }
   const digits = (g.phone || '').replace(/\D/g, '');

@@ -80,6 +80,7 @@ const SCHEMA = {
       { key: 'meal_preference', label: 'Meal', type: 'select', options: ['Veg', 'Non-veg', 'Jain', 'Vegan', 'No preference'] },
       { key: 'rsvp_status', label: 'RSVP', type: 'select', options: ['Pending', 'Yes', 'No', 'Maybe'] },
       { key: 'invite_sent', label: 'Invite sent', type: 'checkbox' },
+      { key: 'rsvp_message', label: 'RSVP message', type: 'textarea' },
       { key: 'notes', label: 'Notes', type: 'textarea' },
     ],
   },
@@ -314,6 +315,8 @@ function initializeDatabase() {
 
   // Guests need a unique invite token for their personalised link.
   try { db.run(`ALTER TABLE guests ADD COLUMN invite_token TEXT`); } catch (e) { /* exists */ }
+  try { db.run(`ALTER TABLE guests ADD COLUMN invites_configured INTEGER DEFAULT 0`); } catch (e) { /* exists */ }
+  try { db.run(`CREATE UNIQUE INDEX IF NOT EXISTS idx_guests_token ON guests(invite_token)`); } catch (e) { /* pre-existing dup tokens */ }
 
   // guest_functions: per-function invite + RSVP (many-to-many).
   db.run(`
@@ -342,11 +345,11 @@ function initializeDatabase() {
 }
 
 const DEFAULT_SETTINGS = {
-  bride_name: 'Ananya',
-  groom_name: 'Pranav',
+  bride_name: 'Akansha',
+  groom_name: 'Priyal',
   couple_initials: 'A & P',
   wedding_date: '',
-  hashtag: '#AnanyaWedsPranav',
+  hashtag: '#AkanshaWedsPriyal',
   tagline: 'Two hearts, one journey',
   cover_message: 'Together with our families, we joyfully invite you to celebrate our wedding.',
   contact_name: '',
@@ -370,8 +373,19 @@ function getSettings() {
   return out;
 }
 
+// Only these settings are exposed on the public invite page.
+const PUBLIC_SETTING_KEYS = ['bride_name', 'groom_name', 'couple_initials', 'wedding_date', 'hashtag', 'tagline', 'cover_message', 'rsvp_deadline', 'contact_name', 'contact_phone'];
+function publicSettings() {
+  const s = getSettings();
+  const out = {};
+  PUBLIC_SETTING_KEYS.forEach(k => { out[k] = s[k] || ''; });
+  return out;
+}
+
 function setSettings(obj) {
+  const allowed = new Set(Object.keys(DEFAULT_SETTINGS));
   for (const [k, v] of Object.entries(obj)) {
+    if (!allowed.has(k)) continue;
     db.run(
       `INSERT INTO settings (key, value) VALUES (?, ?)
        ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
@@ -383,13 +397,19 @@ function setSettings(obj) {
 }
 
 function makeToken() {
-  return crypto.randomBytes(6).toString('hex');
+  return crypto.randomBytes(16).toString('hex');
+}
+
+function makeUniqueToken() {
+  let t = makeToken();
+  while (queryOne(`SELECT 1 AS x FROM guests WHERE invite_token = ?`, [t])) t = makeToken();
+  return t;
 }
 
 function backfillInviteTokens() {
   const rows = queryAll(`SELECT id FROM guests WHERE invite_token IS NULL OR invite_token = ''`);
   rows.forEach(r => {
-    db.run(`UPDATE guests SET invite_token = ? WHERE id = ?`, [makeToken(), r.id]);
+    db.run(`UPDATE guests SET invite_token = ? WHERE id = ?`, [makeUniqueToken(), r.id]);
   });
 }
 
@@ -451,6 +471,8 @@ function coerce(col, value) {
 
 function create(table, body) {
   const cols = SCHEMA[table].columns;
+  const missing = cols.find(c => c.required && (body[c.key] === undefined || body[c.key] === null || String(body[c.key]).trim() === ''));
+  if (missing) { const e = new Error(`${missing.label} is required`); e.status = 400; throw e; }
   const keys = [];
   const vals = [];
   cols.forEach(c => {
@@ -460,7 +482,7 @@ function create(table, body) {
   const placeholders = keys.map(() => '?').join(', ');
   db.run(`INSERT INTO ${table} (${keys.join(', ')}) VALUES (${placeholders})`, vals);
   const id = lastId();
-  if (table === 'guests') db.run(`UPDATE guests SET invite_token = ? WHERE id = ?`, [makeToken(), id]);
+  if (table === 'guests') db.run(`UPDATE guests SET invite_token = ? WHERE id = ?`, [makeUniqueToken(), id]);
   saveDb();
   return getOne(table, id);
 }
@@ -481,8 +503,22 @@ function update(table, id, body) {
 
 function remove(table, id) {
   db.run(`DELETE FROM ${table} WHERE id = ?`, [id]);
-  if (table === 'guests') db.run(`DELETE FROM guest_functions WHERE guest_id = ?`, [id]);
-  if (table === 'functions') db.run(`DELETE FROM guest_functions WHERE function_id = ?`, [id]);
+  // Clean up references so nothing dangles.
+  if (table === 'guests') {
+    db.run(`DELETE FROM guest_functions WHERE guest_id = ?`, [id]);
+    db.run(`DELETE FROM room_allocations WHERE guest_id = ?`, [id]);
+    db.run(`DELETE FROM travel WHERE guest_id = ?`, [id]);
+    db.run(`UPDATE gifts_received SET guest_id = NULL WHERE guest_id = ?`, [id]);
+  }
+  if (table === 'functions') {
+    db.run(`DELETE FROM guest_functions WHERE function_id = ?`, [id]);
+    db.run(`UPDATE run_of_show SET function_id = NULL WHERE function_id = ?`, [id]);
+    db.run(`UPDATE dance_performances SET function_id = NULL WHERE function_id = ?`, [id]);
+    db.run(`UPDATE outfits SET function_id = NULL WHERE function_id = ?`, [id]);
+    db.run(`UPDATE gifts_received SET function_id = NULL WHERE function_id = ?`, [id]);
+  }
+  if (table === 'vendors') db.run(`UPDATE budget_items SET vendor_id = NULL WHERE vendor_id = ?`, [id]);
+  if (table === 'rooms') db.run(`UPDATE room_allocations SET room_id = NULL WHERE room_id = ?`, [id]);
   saveDb();
   return { deleted: true };
 }
@@ -495,12 +531,19 @@ function getGuestFunctions(guestId) {
 }
 
 function setGuestFunctions(guestId, functionIds) {
-  db.run(`DELETE FROM guest_functions WHERE guest_id = ? AND function_id NOT IN (${functionIds.map(() => '?').join(',') || 'NULL'})`,
-    [guestId, ...functionIds]);
-  functionIds.forEach(fid => {
-    const existing = queryOne(`SELECT id FROM guest_functions WHERE guest_id = ? AND function_id = ?`, [guestId, fid]);
-    if (!existing) db.run(`INSERT INTO guest_functions (guest_id, function_id, invited, rsvp) VALUES (?, ?, 1, 'Pending')`, [guestId, fid]);
-  });
+  if (!functionIds.length) {
+    // Empty set = invited to nothing. (NOT IN (NULL) would delete nothing, so special-case it.)
+    db.run(`DELETE FROM guest_functions WHERE guest_id = ?`, [guestId]);
+  } else {
+    db.run(`DELETE FROM guest_functions WHERE guest_id = ? AND function_id NOT IN (${functionIds.map(() => '?').join(',')})`,
+      [guestId, ...functionIds]);
+    functionIds.forEach(fid => {
+      const existing = queryOne(`SELECT id FROM guest_functions WHERE guest_id = ? AND function_id = ?`, [guestId, fid]);
+      if (!existing) db.run(`INSERT INTO guest_functions (guest_id, function_id, invited, rsvp) VALUES (?, ?, 1, 'Pending')`, [guestId, fid]);
+    });
+  }
+  // Mark that invites were explicitly configured (so getInviteData won't fall back to "invited to all").
+  db.run(`UPDATE guests SET invites_configured = 1 WHERE id = ?`, [guestId]);
   saveDb();
   return getGuestFunctions(guestId);
 }
@@ -530,8 +573,8 @@ function getInviteData(token) {
   const invitedMap = {};
   invitedRows.forEach(r => { invitedMap[r.function_id] = r; });
 
-  // If the guest has no explicit per-function invites, treat them as invited to all.
-  const hasExplicit = invitedRows.some(r => r.invited);
+  // "Not configured yet" => invited to all (convenience). An explicit empty set => invited to none.
+  const hasExplicit = guest.invites_configured ? true : invitedRows.some(r => r.invited);
   const functions = allFunctions.map(f => {
     const gf = invitedMap[f.id];
     const invited = hasExplicit ? !!(gf && gf.invited) : true;
@@ -544,7 +587,7 @@ function getInviteData(token) {
       headcount: guest.headcount, meal_preference: guest.meal_preference,
     },
     functions,
-    settings: getSettings(),
+    settings: publicSettings(),
   };
 }
 
@@ -554,9 +597,9 @@ function submitRsvp(token, payload) {
   // Overall guest RSVP + meal + headcount
   const overall = payload.attending === 'no' ? 'No' : (payload.attending === 'maybe' ? 'Maybe' : 'Yes');
   db.run(
-    `UPDATE guests SET rsvp_status = ?, headcount = ?, meal_preference = COALESCE(?, meal_preference), notes = COALESCE(?, notes) WHERE id = ?`,
+    `UPDATE guests SET rsvp_status = ?, headcount = ?, meal_preference = COALESCE(?, meal_preference), rsvp_message = COALESCE(?, rsvp_message) WHERE id = ?`,
     [overall, payload.headcount ?? guest.headcount ?? null, payload.meal_preference || null,
-     payload.message ? `RSVP note: ${payload.message}` : null, guest.id]
+     payload.message ? String(payload.message) : null, guest.id]
   );
   // Per-function RSVP
   if (Array.isArray(payload.functions)) {
@@ -574,7 +617,7 @@ function submitRsvp(token, payload) {
 function dashboard() {
   const s = getSettings();
   const guests = list('guests');
-  const totalHeadcount = guests.reduce((a, g) => a + num(g.headcount || (g.rsvp_status === 'Yes' ? 1 : 0)), 0);
+  const totalHeadcount = guests.reduce((a, g) => a + (g.rsvp_status === 'Yes' ? num(g.headcount || 1) : 0), 0);
   const rsvpYes = guests.filter(g => g.rsvp_status === 'Yes').length;
   const rsvpNo = guests.filter(g => g.rsvp_status === 'No').length;
   const rsvpPending = guests.filter(g => !g.rsvp_status || g.rsvp_status === 'Pending').length;

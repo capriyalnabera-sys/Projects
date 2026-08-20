@@ -6,7 +6,6 @@
  *   2. The guest invite site (/i/:token, /public/*) -> open to invited guests
  */
 const express = require('express');
-const cors = require('cors');
 const path = require('path');
 const crypto = require('crypto');
 const db = require('./db');
@@ -16,11 +15,26 @@ const PORT = process.env.PORT || 3000;
 
 // Password to open the planner. Set ADMIN_PASSWORD in the environment for real use.
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'wedding';
-const SECRET = process.env.SESSION_SECRET || `wap-secret-${ADMIN_PASSWORD}`;
+// A random secret when none is set makes the login cookie unforgeable out of the box
+// (logins reset on restart until you set a stable SESSION_SECRET).
+const SECRET = process.env.SESSION_SECRET || crypto.randomBytes(32).toString('hex');
 const AUTH_COOKIE = crypto.createHmac('sha256', SECRET).update('authenticated').digest('hex');
+if (!process.env.ADMIN_PASSWORD) console.warn('  ⚠  ADMIN_PASSWORD not set — using default "wedding". Set it before sharing.');
+if (!process.env.SESSION_SECRET) console.warn('  ⚠  SESSION_SECRET not set — using a random per-boot secret (logins reset on restart).');
 
-app.use(cors());
+function safeEqual(a, b) {
+  const ba = Buffer.from(String(a));
+  const bb = Buffer.from(String(b));
+  return ba.length === bb.length && crypto.timingSafeEqual(ba, bb);
+}
+
 app.use(express.json());
+app.use((req, res, next) => {
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Frame-Options', 'SAMEORIGIN');
+  res.setHeader('Referrer-Policy', 'no-referrer');
+  next();
+});
 
 function parseCookies(req) {
   const out = {};
@@ -33,7 +47,7 @@ function parseCookies(req) {
 
 function requireAuth(req, res, next) {
   const cookies = parseCookies(req);
-  if (cookies.wap_auth === AUTH_COOKIE) return next();
+  if (cookies.wap_auth && safeEqual(cookies.wap_auth, AUTH_COOKIE)) return next();
   if (req.path.startsWith('/api')) return res.status(401).json({ error: 'Authentication required' });
   return res.redirect('/login');
 }
@@ -44,11 +58,14 @@ function requireAuth(req, res, next) {
 
 // Login page + auth
 app.get('/login', (req, res) => res.sendFile(path.join(__dirname, 'public', 'login.html')));
+// The login page needs its stylesheet, which is otherwise behind auth.
+app.get('/styles.css', (req, res) => res.sendFile(path.join(__dirname, 'public', 'styles.css')));
 
 app.post('/api/login', (req, res) => {
-  if ((req.body.password || '') === ADMIN_PASSWORD) {
+  if (safeEqual(req.body.password || '', ADMIN_PASSWORD)) {
+    const secure = (req.headers['x-forwarded-proto'] || req.protocol) === 'https' ? ' Secure;' : '';
     res.setHeader('Set-Cookie',
-      `wap_auth=${AUTH_COOKIE}; HttpOnly; Path=/; SameSite=Lax; Max-Age=${60 * 60 * 24 * 30}`);
+      `wap_auth=${AUTH_COOKIE}; HttpOnly;${secure} Path=/; SameSite=Lax; Max-Age=${60 * 60 * 24 * 30}`);
     return res.json({ ok: true });
   }
   res.status(401).json({ ok: false, error: 'Incorrect password' });

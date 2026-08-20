@@ -3,6 +3,9 @@
   "version": "1.0.0",
   "description": "Wedding_AP - An all-in-one wedding planning tracker with a personalized invite site",
   "main": "server.js",
+  "engines": {
+    "node": ">=18"
+  },
   "scripts": {
     "start": "node server.js",
     "dev": "node server.js",

@@ -1,11 +1,15 @@
 # One-click deploy to Render (https://render.com).
 # In Render: New + -> Blueprint -> connect this repo -> it reads this file.
-# A persistent disk keeps wedding.db across restarts/deploys.
+#
+# NOTE: the persistent disk below REQUIRES a paid instance type (Starter, ~$7/mo);
+# Render's free tier has an ephemeral filesystem, so the database would reset on
+# every deploy/restart. If you want to trial it free, delete the whole `disk:`
+# block and set `plan: free` — just know data won't persist across restarts.
 services:
   - type: web
     name: wedding-ap
     runtime: node
-    plan: free
+    plan: starter
     branch: Wedding_AP
     buildCommand: npm install
     startCommand: node server.js

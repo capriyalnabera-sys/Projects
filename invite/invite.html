@@ -94,7 +94,7 @@
     function fmtDate(d){
       if(!d) return '';
       const dt = new Date(d + (d.length===10?'T00:00:00':''));
-      if(isNaN(dt)) return d;
+      if(isNaN(dt)) return esc(d);
       return dt.toLocaleDateString('en-IN',{weekday:'long',day:'numeric',month:'long',year:'numeric'});
     }
     function fmtTime(t){
@@ -103,7 +103,8 @@
       const ap = h>=12?'PM':'AM'; const hh = ((h+11)%12)+1;
       return `${hh}:${String(m||0).padStart(2,'0')} ${ap}`;
     }
-    function esc(s){return (s==null?'':String(s)).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
+    function esc(s){return (s==null?'':String(s)).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
+    function safeUrl(u){ return /^(https?:|mailto:)/i.test(String(u||'').trim()) ? u : '#'; }
 
     async function load(){
       try{
@@ -164,7 +165,7 @@
           ${f.venue?`<div><b>${esc(f.venue)}</b></div>`:''}
           ${f.address?`<div>${esc(f.address)}</div>`:''}
           ${f.dress_code?`<div>${f.theme_color?`<span class="dot" style="background:${esc(f.theme_color)}"></span>`:''}Dress code: <b>${esc(f.dress_code)}</b></div>`:''}
-          ${f.map_url?`<div><a href="${esc(f.map_url)}" target="_blank" rel="noopener">📍 View on map</a></div>`:''}
+          ${f.map_url?`<div><a href="${esc(safeUrl(f.map_url))}" target="_blank" rel="noopener">📍 View on map</a></div>`:''}
           ${f.description?`<div>${esc(f.description)}</div>`:''}
         </div>
       </div>`;
@@ -192,7 +193,7 @@
             <input type="number" id="headcount" min="1" value="${g.headcount||1}"/>
             <label>Meal preference</label>
             <select id="meal">
-              ${['','Veg','Non-veg','Jain','Vegan','No preference'].map(o=>`<option ${o===g.meal_preference?'selected':''}>${o||'Select…'}</option>`).join('')}
+              ${['','Veg','Non-veg','Jain','Vegan','No preference'].map(o=>`<option value="${o}" ${o===g.meal_preference?'selected':''}>${o||'Select…'}</option>`).join('')}
             </select>
           </div>
           <label>A note for the couple (optional)</label>

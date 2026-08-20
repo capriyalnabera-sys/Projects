@@ -3,11 +3,17 @@ wedding.db
 .env
 .env.*
 !.env.example
-# Never commit Google service-account keys
+# Never commit Google service-account keys. Prefer the GOOGLE_SERVICE_ACCOUNT_JSON
+# env var; if you must use a file, keep it in secrets/ (ignored below).
+secrets/
 service-account*.json
+serviceAccount*.json
 google-service-account*.json
 *-service-account*.json
 credentials*.json
+client_secret*.json
+*.pem
+*.key
 *.log
 .DS_Store
 Thumbs.db
