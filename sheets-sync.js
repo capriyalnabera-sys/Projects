@@ -64,6 +64,7 @@ async function api(method, sub, data) {
   return res.data;
 }
 const range = tab => encodeURIComponent(`'${tab.replace(/'/g, "''")}'`);
+const a1 = (tab, cell) => `'${String(tab).replace(/'/g, "''")}'!${cell}`;
 
 // ---- tab layout (kept identical between push and pull) ----
 function sanitize(name, used) {
@@ -112,7 +113,7 @@ function summaryRows() {
   const s = db.getSettings(), d = db.dashboard();
   return [
     ['Wedding', `${s.bride_name || ''} & ${s.groom_name || ''}`],
-    ['Date', s.wedding_date || ''],
+    ['Dates', s.wedding_date_end ? `${s.wedding_date || ''} to ${s.wedding_date_end}` : (s.wedding_date || '')],
     ['Hashtag', s.hashtag || ''],
     ['Guests', d.counts.guests],
     ['RSVP yes / no / pending', `${d.rsvp.yes} / ${d.rsvp.no} / ${d.rsvp.pending}`],
@@ -138,11 +139,11 @@ async function push(baseUrl) {
   });
   if (add.length) await api('POST', `${SHEET_ID}:batchUpdate`, { requests: add });
 
-  const data = [{ range: `'Summary'!A1`, values: summaryRows() }];
+  const data = [{ range: a1('Summary', 'A1'), values: summaryRows() }];
   await api('POST', `${SHEET_ID}/values/${range('Summary')}:clear`);
   for (const t of tabs) {
     await api('POST', `${SHEET_ID}/values/${range(t.tab)}:clear`);
-    data.push({ range: `'${t.tab}'!A1`, values: [header(t.def, t.table), ...rows(t.table, t.def, baseUrl)] });
+    data.push({ range: a1(t.tab, 'A1'), values: [header(t.def, t.table), ...rows(t.table, t.def, baseUrl)] });
   }
   await api('POST', `${SHEET_ID}/values:batchUpdate`, { valueInputOption: 'RAW', data });
   return { pushed: tabs.length + 1, tabs: ['Summary', ...tabs.map(t => t.tab)] };
@@ -153,7 +154,10 @@ function coerce(col, v) {
   if (v === undefined || v === null) return null;
   const s = String(v).trim();
   if (col.type === 'checkbox') return /^(yes|true|1|✓|y)$/i.test(s) ? 1 : 0;
-  if (col.type === 'money' || col.type === 'number') return s === '' ? null : Number(s.replace(/[^0-9.\-]/g, ''));
+  if (col.type === 'money' || col.type === 'number') {
+    const cleaned = s.replace(/[^0-9.\-]/g, '');
+    return cleaned === '' ? null : Number(cleaned);   // "TBD" -> null (not 0)
+  }
   return s;
 }
 function rowToRecord(def, headerRow, row) {
@@ -164,9 +168,22 @@ function rowToRecord(def, headerRow, row) {
     if (idx === 0) return;               // ID column
     const c = byLabel[label];
     if (!c || c.type === 'ref') return;  // computed / invite link / refs are read-only
-    rec[c.key] = coerce(c, row[idx]);
+    const raw = row[idx];
+    if (raw === undefined || raw === null || String(raw).trim() === '') return; // blank cell = leave unchanged
+    const val = coerce(c, raw);
+    if (val === null) return;            // uncoercible (e.g. "TBD" in a number) -> leave unchanged
+    rec[c.key] = val;
   });
   return rec;
+}
+
+// A blank-ID Sheet row can be created in the planner only if it isn't missing a
+// required value we can actually set. Refs can't be set from the Sheet, so a
+// table that REQUIRES a ref (room allocation, travel, run-of-show) can't gain
+// rows this way — those are added in the app.
+function canCreate(def, rec) {
+  if (def.columns.some(c => c.required && c.type === 'ref')) return false;
+  return !def.columns.some(c => c.required && c.type !== 'ref' && (rec[c.key] == null || rec[c.key] === ''));
 }
 
 // ---- pull: Sheet -> planner ----
@@ -182,23 +199,30 @@ async function pull() {
     if (values.length < 2) continue;
     const head = values[0];
     let updated = 0, created = 0;
+    const idWrites = [];
     for (let i = 1; i < values.length; i++) {
       const row = values[i] || [];
       if (row.every(c => c === '' || c == null)) continue;
       const rec = rowToRecord(t.def, head, row);
       const id = row[0];
-      if (id != null && String(id).trim() !== '') {
-        if (db.getOne(t.table, Number(id))) { db.update(t.table, Number(id), rec); updated++; }
-        else { db.create(t.table, rec); created++; }
-      } else {
-        const req = t.def.columns.find(c => c.required);
-        if (req && (rec[req.key] == null || rec[req.key] === '')) continue; // skip blank/incomplete new rows
-        db.create(t.table, rec); created++;
+      const existingId = (id != null && String(id).trim() !== '' && db.getOne(t.table, Number(id))) ? Number(id) : null;
+      if (existingId != null) {
+        try { db.update(t.table, existingId, rec); updated++; } catch (e) { /* skip bad row */ }
+      } else if (canCreate(t.def, rec)) {
+        try {
+          const createdRow = db.create(t.table, rec);
+          created++;
+          // Write the new ID back so a later pull updates this row instead of duplicating it.
+          idWrites.push({ range: a1(t.tab, 'A' + (i + 1)), values: [[createdRow.id]] });
+        } catch (e) { /* skip invalid row */ }
       }
+    }
+    if (idWrites.length) {
+      try { await api('POST', `${SHEET_ID}/values:batchUpdate`, { valueInputOption: 'RAW', data: idWrites }); } catch (e) { /* best effort */ }
     }
     if (updated || created) summary[t.tab] = { updated, created };
   }
   return summary;
 }
 
-module.exports = { isConfigured, status, push, pull, rowToRecord, coerce, moduleTabs };
+module.exports = { isConfigured, status, push, pull, rowToRecord, coerce, moduleTabs, canCreate };
