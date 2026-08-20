@@ -358,6 +358,11 @@ const DEFAULT_SETTINGS = {
   rsvp_deadline: '',
   invite_message_template:
     'Dear {name}, 🌸\n\nWith great joy, {bride} & {groom} — together with their families — invite you to celebrate their wedding on {date}.\n\nHere is your personal invitation with all the details and to RSVP:\n{link}\n\nWe would be so happy to have you with us! 💕\n{hashtag}',
+  our_story: '',
+  travel_info: '',
+  gift_note: '',
+  gallery_urls: '',
+  music_url: '',
 };
 
 function seedSettings() {
@@ -375,7 +380,7 @@ function getSettings() {
 }
 
 // Only these settings are exposed on the public invite page.
-const PUBLIC_SETTING_KEYS = ['bride_name', 'groom_name', 'couple_initials', 'wedding_date', 'wedding_date_end', 'hashtag', 'tagline', 'cover_message', 'rsvp_deadline', 'contact_name', 'contact_phone'];
+const PUBLIC_SETTING_KEYS = ['bride_name', 'groom_name', 'couple_initials', 'wedding_date', 'wedding_date_end', 'hashtag', 'tagline', 'cover_message', 'rsvp_deadline', 'contact_name', 'contact_phone', 'our_story', 'travel_info', 'gift_note', 'gallery_urls', 'music_url'];
 function publicSettings() {
   const s = getSettings();
   const out = {};

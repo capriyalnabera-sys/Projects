@@ -91,9 +91,30 @@
     .divider-fl{display:block;margin:36px auto 4px;width:190px;height:38px;}
     .footer-sprig{display:block;margin:18px auto 2px;width:120px;height:30px;opacity:.75;}
     @media(max-width:520px){ .floral-tl,.floral-tr{width:150px;height:150px;} }
+
+    /* Story / gallery / travel / blessings */
+    .story{max-width:600px;margin:6px auto 0;text-align:center;}
+    .story p{color:var(--ink);opacity:.86;font-size:15.5px;line-height:1.85;margin:0 0 12px;}
+    .gallery{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-top:4px;}
+    .gallery img,.gallery .ph{aspect-ratio:3/4;width:100%;object-fit:cover;border-radius:14px;border:1px solid var(--line);box-shadow:0 6px 20px rgba(90,50,40,.06);}
+    .gallery .ph{display:flex;align-items:center;justify-content:center;background:linear-gradient(150deg,#fbeef3,#f3d9e2);}
+    @media(max-width:520px){ .gallery{grid-template-columns:repeat(2,1fr);} }
+    .info-card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:22px 24px;box-shadow:0 6px 20px rgba(90,50,40,.05);max-width:600px;margin:0 auto;}
+    .info-card p{white-space:pre-line;color:var(--ink);opacity:.86;line-height:1.85;margin:0;}
+    .blessing{max-width:560px;margin:0 auto;text-align:center;}
+    .blessing .icon{font-size:30px;line-height:1;}
+    .blessing p{color:var(--ink);opacity:.86;line-height:1.8;font-size:15.5px;margin-top:8px;}
+
+    /* Music toggle */
+    .music-btn{position:fixed;bottom:20px;left:20px;z-index:150;width:46px;height:46px;border-radius:50%;
+      border:1px solid var(--line);background:#fff;box-shadow:0 6px 18px rgba(90,50,40,.16);cursor:pointer;
+      font-size:18px;display:flex;align-items:center;justify-content:center;transition:transform .15s,background .15s;}
+    .music-btn:hover{transform:scale(1.08);}
+    .music-btn.playing{background:var(--accent-soft);border-color:var(--accent);}
   </style>
 </head>
 <body>
+  <button class="music-btn" id="musicBtn" onclick="toggleMusic()" aria-label="Play soft background music" title="Play soft music">🎵</button>
   <div id="app"><div class="loading">Loading your invitation…</div></div>
 
   <script>
@@ -142,6 +163,61 @@
     function floralSprig(){
       return `<svg class="footer-sprig" viewBox="0 0 120 30" aria-hidden="true">${fLeaf(40,15,150,.55)}${fLeaf(80,15,30,.55)}${fBloom(60,15,0.7,'#d98aa8','#ecb6c9')}</svg>`;
     }
+
+    // --- optional invite sections (shown only when the couple fills them in) ---
+    function storyBlock(){
+      const txt=(DATA.settings.our_story||'').trim(); if(!txt) return '';
+      const html=esc(txt).split(/\n+/).map(p=>p.trim()).filter(Boolean).map(p=>`<p>${p}</p>`).join('');
+      return `${floralDivider()}<h2 class="section">Our Story</h2><div class="story">${html}</div>`;
+    }
+    function galleryBlock(){
+      const urls=(DATA.settings.gallery_urls||'').split(/[\n,]/).map(u=>u.trim()).filter(u=>/^(https?:|data:)/i.test(u)).slice(0,9);
+      const tiles = urls.length
+        ? urls.map(u=>`<img src="${esc(u)}" alt="" loading="lazy"/>`).join('')
+        : [0,1,2].map((_,i)=>`<div class="ph"><svg viewBox="-22 -22 44 44" width="58" height="58" aria-hidden="true">${fBloom(0,0,1.15,i===1?'#d98aa8':'#e6a6c0','#efc6d6')}</svg></div>`).join('');
+      return `<h2 class="section">Us, together</h2>
+        <div class="section-sub">${urls.length?'A few of our favourite moments 💕':'Cherished moments · photographs to follow 📷'}</div>
+        <div class="gallery">${tiles}</div>`;
+    }
+    function travelBlock(){
+      const txt=(DATA.settings.travel_info||'').trim(); if(!txt) return '';
+      return `<h2 class="section">Travel &amp; Stay</h2><div class="section-sub">Everything you need to reach us</div>
+        <div class="info-card"><p>${esc(txt)}</p></div>`;
+    }
+    function blessingBlock(){
+      const txt=(DATA.settings.gift_note||'').trim(); if(!txt) return '';
+      return `<h2 class="section">With Your Blessings</h2><div class="blessing"><div class="icon">💝</div><p>${esc(txt)}</p></div>`;
+    }
+
+    // --- background music: soft self-contained synth ambient, or a URL if the couple set one ---
+    let _audio=null,_actx=null,_ambTimer=null,_musicOn=false;
+    function startAmbient(){
+      const AC=window.AudioContext||window.webkitAudioContext; if(!AC) return;
+      _actx=new AC();
+      const master=_actx.createGain(); master.gain.value=0; master.connect(_actx.destination);
+      master.gain.linearRampToValueAtTime(0.16,_actx.currentTime+2);
+      const lp=_actx.createBiquadFilter(); lp.type='lowpass'; lp.frequency.value=1500; lp.connect(master);
+      const scale=[523.25,587.33,659.25,783.99,880.00,1046.50];
+      const pat=[0,2,4,2,1,3,4,5,4,2,1,3]; let i=0;
+      const play=()=>{ if(!_actx) return; const t=_actx.currentTime; const f=scale[pat[i%pat.length]];
+        const o=_actx.createOscillator(); o.type='sine'; o.frequency.value=f;
+        const g=_actx.createGain(); g.gain.setValueAtTime(0,t); g.gain.linearRampToValueAtTime(0.5,t+0.04); g.gain.exponentialRampToValueAtTime(0.001,t+1.7);
+        o.connect(g); g.connect(lp); o.start(t); o.stop(t+1.8); i++; };
+      play(); _ambTimer=setInterval(play,640);
+    }
+    function stopMusic(){
+      if(_audio){ try{_audio.pause();}catch(e){} }
+      if(_ambTimer){ clearInterval(_ambTimer); _ambTimer=null; }
+      if(_actx){ try{_actx.close();}catch(e){} _actx=null; }
+    }
+    function toggleMusic(){
+      if(!DATA) return;
+      const btn=document.getElementById('musicBtn'); const url=(DATA.settings.music_url||'').trim();
+      if(_musicOn){ stopMusic(); _musicOn=false; if(btn){btn.classList.remove('playing'); btn.textContent='🎵';} return; }
+      if(/^https?:\/\//i.test(url)){ if(!_audio){ _audio=new Audio(url); _audio.loop=true; _audio.volume=.5; } _audio.play().catch(()=>{}); }
+      else { startAmbient(); }
+      _musicOn=true; if(btn){ btn.classList.add('playing'); btn.textContent='🔊'; }
+    }
     function fmtTime(t){
       if(!t) return '';
       const [h,m] = t.split(':').map(Number);
@@ -189,12 +265,19 @@
             <p>${esc(s.cover_message||'We would be honoured to have you celebrate with us.')}</p>
           </div>
 
+          ${storyBlock()}
+          ${galleryBlock()}
+
           ${floralDivider()}
           <h2 class="section">Schedule of Events</h2>
           <div class="section-sub">${invited.length?`You're specially invited to ${invited.length} of these`:'The full celebration'}</div>
           ${DATA.functions.map(eventCard).join('') || '<p style="text-align:center;color:var(--muted)">Details coming soon.</p>'}
 
+          ${travelBlock()}
+
           ${invited.length ? rsvpBlock(g, invited) : ''}
+
+          ${blessingBlock()}
 
           <div class="details">
             ${s.contact_name?`For any help, contact <b>${esc(s.contact_name)}</b>${s.contact_phone?` · ${esc(s.contact_phone)}`:''}`:''}
@@ -248,8 +331,8 @@
               ${['','Veg','Non-veg','Jain','Vegan','No preference'].map(o=>`<option value="${o}" ${o===g.meal_preference?'selected':''}>${o||'Select…'}</option>`).join('')}
             </select>
           </div>
-          <label>A note for the couple (optional)</label>
-          <textarea id="message" placeholder="Send your blessings or any message…"></textarea>
+          <label>A note, song request or dietary need (optional)</label>
+          <textarea id="message" placeholder="Send your blessings, a song you'd love to hear, or any dietary needs…"></textarea>
           <button class="btn-submit serif" onclick="submitRsvp()">Send RSVP</button>
         </div>`;
     }

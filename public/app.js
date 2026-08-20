@@ -424,6 +424,11 @@ async function renderSettings() {
     ['tagline', 'Tagline', 'text'],
     ['hashtag', 'Hashtag', 'text'],
     ['cover_message', 'Invite welcome message', 'textarea'],
+    ['our_story', 'Our story (invite section)', 'textarea'],
+    ['travel_info', 'Travel & stay info (invite section)', 'textarea'],
+    ['gift_note', 'Gifts / blessings note (invite section)', 'textarea'],
+    ['gallery_urls', 'Photo URLs for the gallery — one per line', 'textarea'],
+    ['music_url', 'Background music URL (optional; blank = soft ambient)', 'text'],
     ['invite_message_template', 'WhatsApp invite message — placeholders: {name} {link} {bride} {groom} {date} {hashtag}', 'textarea'],
     ['rsvp_deadline', 'RSVP by', 'date'],
     ['contact_name', 'Contact person', 'text'],
@@ -441,7 +446,7 @@ async function renderSettings() {
 }
 
 async function saveSettings() {
-  const keys = ['bride_name', 'groom_name', 'couple_initials', 'wedding_date', 'wedding_date_end', 'tagline', 'hashtag', 'cover_message', 'invite_message_template', 'rsvp_deadline', 'contact_name', 'contact_phone'];
+  const keys = ['bride_name', 'groom_name', 'couple_initials', 'wedding_date', 'wedding_date_end', 'tagline', 'hashtag', 'cover_message', 'invite_message_template', 'rsvp_deadline', 'contact_name', 'contact_phone', 'our_story', 'travel_info', 'gift_note', 'gallery_urls', 'music_url'];
   const body = {};
   keys.forEach(k => { const el = document.getElementById('s_' + k); if (el) body[k] = el.value; });
   state.settings = await api('/settings', 'PUT', body);

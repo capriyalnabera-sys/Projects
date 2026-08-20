@@ -33,6 +33,9 @@ function futureDate(daysFromNow) {
     rsvp_deadline: '2026-12-06',
     contact_name: 'Rohan (Groom\'s brother)',
     contact_phone: '+91 98765 43210',
+    our_story: "Akansha and Priyal first met over chai at a friend's Diwali party in Bengaluru — a five-minute hello that turned into a five-hour conversation. Three years, countless road trips and one very nervous beachside proposal later, they are saying yes to forever, and cannot wait to begin this next chapter surrounded by the people they love most.",
+    travel_info: "Venue: Taj Vivanta, Bengaluru.\nNearest airport: Kempegowda International (BLR), about 40 km away.\nRoom blocks are held for outstation guests at the Taj and the Ibis nearby — mention the Akansha & Priyal wedding when booking.\nShuttles run between the hotels and the venue for every function.",
+    gift_note: "Your presence at our wedding is the greatest gift of all. Should you wish to bless us further, a little something towards our first home together would mean the world — but truly, just come and dance with us!",
   });
 
   const functions = [
