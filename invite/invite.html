@@ -81,6 +81,16 @@
     .thanks .big{font-family:'Cormorant Garamond',serif;font-size:40px;color:var(--accent);}
     .loading,.error{text-align:center;padding:90px 20px;color:var(--muted);font-family:'Cormorant Garamond',serif;font-size:24px;}
     @media(max-width:520px){ .names{font-size:44px;} }
+
+    /* Floral / botanical decorations */
+    .hero-inner{position:relative;z-index:2;}
+    .floral{position:absolute;pointer-events:none;z-index:1;}
+    .floral-tl{left:-30px;top:-34px;width:220px;height:220px;opacity:.82;}
+    .floral-tr{right:-30px;top:-34px;width:220px;height:220px;opacity:.82;transform:scaleX(-1);}
+    .bg-fl-br{position:fixed;right:-48px;bottom:-48px;width:300px;height:300px;opacity:.07;transform:rotate(178deg);z-index:0;}
+    .divider-fl{display:block;margin:36px auto 4px;width:190px;height:38px;}
+    .footer-sprig{display:block;margin:18px auto 2px;width:120px;height:30px;opacity:.75;}
+    @media(max-width:520px){ .floral-tl,.floral-tr{width:150px;height:150px;} }
   </style>
 </head>
 <body>
@@ -96,6 +106,41 @@
       const dt = new Date(d + (d.length===10?'T00:00:00':''));
       if(isNaN(dt)) return esc(d);
       return dt.toLocaleDateString('en-IN',{weekday:'long',day:'numeric',month:'long',year:'numeric'});
+    }
+    function fmtDateRange(a,b){
+      if(!a) return '';
+      if(!b||b===a) return fmtDate(a);
+      const x=new Date(a+(a.length===10?'T00:00:00':'')), y=new Date(b+(b.length===10?'T00:00:00':''));
+      if(isNaN(x)||isNaN(y)) return fmtDate(a);
+      if(x.getMonth()===y.getMonth()&&x.getFullYear()===y.getFullYear())
+        return `${x.getDate()}–${y.getDate()} ${x.toLocaleDateString('en-IN',{month:'long'})} ${x.getFullYear()}`;
+      return `${x.toLocaleDateString('en-IN',{day:'numeric',month:'short'})} – ${y.toLocaleDateString('en-IN',{day:'numeric',month:'short',year:'numeric'})}`;
+    }
+
+    // --- Inline SVG botanical illustrations (self-contained, no external assets) ---
+    function fBloom(x,y,s,c1,c2){
+      const ring=(rx,ry,fill,dy)=>[0,72,144,216,288].map(a=>`<ellipse cx="0" cy="${dy}" rx="${rx}" ry="${ry}" fill="${fill}" transform="rotate(${a})"/>`).join('');
+      return `<g transform="translate(${x},${y}) scale(${s})"><g>${ring(7,12,c1,-12)}</g><g>${ring(3.8,7,c2,-7)}</g><circle r="5" fill="#eab84f"/><circle r="2.3" fill="#d69a2f"/></g>`;
+    }
+    function fLeaf(x,y,a,s){
+      return `<g transform="translate(${x},${y}) rotate(${a}) scale(${s})"><path d="M0 0 C 10 -8 24 -7 33 0 C 24 7 10 8 0 0 Z" fill="#bcd3ad"/><path d="M3 0 L30 0" stroke="#a1bd92" stroke-width="1.3" fill="none" stroke-linecap="round"/></g>`;
+    }
+    function floralCorner(cls){
+      return `<svg class="floral ${cls}" viewBox="0 0 220 220" aria-hidden="true">
+        <path d="M20 12 C 80 42 104 104 100 178" stroke="#cf9fb1" stroke-width="2" fill="none" stroke-linecap="round" opacity=".6"/>
+        <path d="M20 12 C 64 20 112 24 172 14" stroke="#cf9fb1" stroke-width="1.5" fill="none" opacity=".45"/>
+        ${fLeaf(60,34,18,1)}${fLeaf(150,20,-6,.82)}${fLeaf(74,76,52,1.05)}${fLeaf(104,128,72,.95)}${fLeaf(46,30,20,.7)}
+        ${fBloom(30,34,1.25,'#e6a6c0','#efc6d6')}${fBloom(158,18,1.0,'#d98aa8','#ecb6c9')}${fBloom(98,158,0.82,'#e6a6c0','#efc6d6')}${fBloom(150,46,0.5,'#d98aa8','#ecb6c9')}
+      </svg>`;
+    }
+    function floralDivider(){
+      return `<svg class="divider-fl" viewBox="0 0 200 40" aria-hidden="true">
+        <path d="M8 20 H72" stroke="#d3a7b6" stroke-width="1.3" opacity=".55"/><path d="M128 20 H192" stroke="#d3a7b6" stroke-width="1.3" opacity=".55"/>
+        ${fLeaf(74,20,150,.7)}${fLeaf(126,20,30,.7)}${fBloom(84,20,0.5,'#e6a6c0','#efc6d6')}${fBloom(116,20,0.5,'#e6a6c0','#efc6d6')}${fBloom(100,20,1.0,'#d98aa8','#ecb6c9')}
+      </svg>`;
+    }
+    function floralSprig(){
+      return `<svg class="footer-sprig" viewBox="0 0 120 30" aria-hidden="true">${fLeaf(40,15,150,.55)}${fLeaf(80,15,30,.55)}${fBloom(60,15,0.7,'#d98aa8','#ecb6c9')}</svg>`;
     }
     function fmtTime(t){
       if(!t) return '';
@@ -125,13 +170,18 @@
       const firstDate = (DATA.functions.find(f=>f.event_date)||{}).event_date || s.wedding_date;
 
       document.getElementById('app').innerHTML = `
+        ${floralCorner('bg-fl-br')}
         <div class="hero">
-          <div class="monogram serif">${esc(s.couple_initials||'A&P')}</div>
-          <div class="pre">Together with their families</div>
-          <div class="names serif">${esc(s.bride_name||'Bride')} <span class="amp">&amp;</span> ${esc(s.groom_name||'Groom')}</div>
-          <div class="tagline">${esc(s.tagline||'request the pleasure of your company')}</div>
-          <div class="wed-date">${firstDate?fmtDate(firstDate):''}</div>
-          <div class="countdown" id="cd"></div>
+          ${floralCorner('floral-tl')}
+          ${floralCorner('floral-tr')}
+          <div class="hero-inner">
+            <div class="monogram serif">${esc(s.couple_initials||'A&P')}</div>
+            <div class="pre">Together with their families</div>
+            <div class="names serif">${esc(s.bride_name||'Bride')} <span class="amp">&amp;</span> ${esc(s.groom_name||'Groom')}</div>
+            <div class="tagline">${esc(s.tagline||'request the pleasure of your company')}</div>
+            <div class="wed-date">${s.wedding_date_end?fmtDateRange(s.wedding_date||firstDate,s.wedding_date_end):(firstDate?fmtDate(firstDate):'')}</div>
+            <div class="countdown" id="cd"></div>
+          </div>
         </div>
         <div class="wrap">
           <div class="greeting">
@@ -139,6 +189,7 @@
             <p>${esc(s.cover_message||'We would be honoured to have you celebrate with us.')}</p>
           </div>
 
+          ${floralDivider()}
           <h2 class="section">Schedule of Events</h2>
           <div class="section-sub">${invited.length?`You're specially invited to ${invited.length} of these`:'The full celebration'}</div>
           ${DATA.functions.map(eventCard).join('') || '<p style="text-align:center;color:var(--muted)">Details coming soon.</p>'}
@@ -149,6 +200,7 @@
             ${s.contact_name?`For any help, contact <b>${esc(s.contact_name)}</b>${s.contact_phone?` · ${esc(s.contact_phone)}`:''}`:''}
             ${s.hashtag?`<div class="hash">${esc(s.hashtag)}</div>`:''}
           </div>
+          ${floralSprig()}
           <div class="footer">Made with love · Wedding_AP</div>
         </div>`;
 

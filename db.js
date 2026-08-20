@@ -348,7 +348,8 @@ const DEFAULT_SETTINGS = {
   bride_name: 'Akansha',
   groom_name: 'Priyal',
   couple_initials: 'A & P',
-  wedding_date: '',
+  wedding_date: '2026-12-20',
+  wedding_date_end: '2026-12-22',
   hashtag: '#AkanshaWedsPriyal',
   tagline: 'Two hearts, one journey',
   cover_message: 'Together with our families, we joyfully invite you to celebrate our wedding.',
@@ -374,7 +375,7 @@ function getSettings() {
 }
 
 // Only these settings are exposed on the public invite page.
-const PUBLIC_SETTING_KEYS = ['bride_name', 'groom_name', 'couple_initials', 'wedding_date', 'hashtag', 'tagline', 'cover_message', 'rsvp_deadline', 'contact_name', 'contact_phone'];
+const PUBLIC_SETTING_KEYS = ['bride_name', 'groom_name', 'couple_initials', 'wedding_date', 'wedding_date_end', 'hashtag', 'tagline', 'cover_message', 'rsvp_deadline', 'contact_name', 'contact_phone'];
 function publicSettings() {
   const s = getSettings();
   const out = {};

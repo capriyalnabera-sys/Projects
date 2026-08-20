@@ -106,7 +106,7 @@ async function renderDashboard() {
     <div class="grid cards">
       <div class="card countdown">
         <div class="names">${esc(s.bride_name || 'Bride')} &amp; ${esc(s.groom_name || 'Groom')}</div>
-        <div class="date">${s.wedding_date ? formatDate(s.wedding_date) : ''}</div>
+        <div class="date">${s.wedding_date ? formatDateRange(s.wedding_date, s.wedding_date_end) : ''}</div>
         ${daysHtml}
       </div>
 
@@ -148,6 +148,16 @@ function formatDate(d) {
   const dt = new Date(d + (d.length === 10 ? 'T00:00:00' : ''));
   if (isNaN(dt)) return esc(d);
   return dt.toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' });
+}
+function formatDateRange(start, end) {
+  if (!start) return '';
+  if (!end || end === start) return formatDate(start);
+  const a = new Date(start + (start.length === 10 ? 'T00:00:00' : ''));
+  const b = new Date(end + (end.length === 10 ? 'T00:00:00' : ''));
+  if (isNaN(a) || isNaN(b)) return formatDate(start);
+  if (a.getMonth() === b.getMonth() && a.getFullYear() === b.getFullYear())
+    return `${a.getDate()}–${b.getDate()} ${a.toLocaleDateString('en-IN', { month: 'long' })} ${a.getFullYear()}`;
+  return `${a.toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })} – ${b.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}`;
 }
 
 function syncPanel(st) {
@@ -409,7 +419,8 @@ async function renderSettings() {
     ['bride_name', 'Bride\'s name', 'text'],
     ['groom_name', 'Groom\'s name', 'text'],
     ['couple_initials', 'Monogram / initials', 'text'],
-    ['wedding_date', 'Wedding date', 'date'],
+    ['wedding_date', 'Wedding date (first day)', 'date'],
+    ['wedding_date_end', 'Wedding date (last day, optional)', 'date'],
     ['tagline', 'Tagline', 'text'],
     ['hashtag', 'Hashtag', 'text'],
     ['cover_message', 'Invite welcome message', 'textarea'],
@@ -430,7 +441,7 @@ async function renderSettings() {
 }
 
 async function saveSettings() {
-  const keys = ['bride_name', 'groom_name', 'couple_initials', 'wedding_date', 'tagline', 'hashtag', 'cover_message', 'invite_message_template', 'rsvp_deadline', 'contact_name', 'contact_phone'];
+  const keys = ['bride_name', 'groom_name', 'couple_initials', 'wedding_date', 'wedding_date_end', 'tagline', 'hashtag', 'cover_message', 'invite_message_template', 'rsvp_deadline', 'contact_name', 'contact_phone'];
   const body = {};
   keys.forEach(k => { const el = document.getElementById('s_' + k); if (el) body[k] = el.value; });
   state.settings = await api('/settings', 'PUT', body);

@@ -25,21 +25,22 @@ function futureDate(daysFromNow) {
     bride_name: 'Akansha',
     groom_name: 'Priyal',
     couple_initials: 'A & P',
-    wedding_date: futureDate(WED),
+    wedding_date: '2026-12-20',
+    wedding_date_end: '2026-12-22',
     hashtag: '#AkanshaWedsPriyal',
     tagline: 'Two souls, one beautiful journey',
     cover_message: 'Together with our families, we joyfully invite you to share in our happiness as we begin our new life together.',
-    rsvp_deadline: futureDate(WED - 14),
+    rsvp_deadline: '2026-12-06',
     contact_name: 'Rohan (Groom\'s brother)',
     contact_phone: '+91 98765 43210',
   });
 
   const functions = [
-    { name: 'Mehndi', event_date: futureDate(WED - 2), start_time: '11:00', end_time: '15:00', venue: 'Rose Garden Lawn', address: 'Taj Vivanta, Bengaluru', dress_code: 'Bright florals', theme_color: '#f2b705', sequence: 1, map_url: 'https://maps.google.com' },
-    { name: 'Haldi', event_date: futureDate(WED - 1), start_time: '09:00', end_time: '12:00', venue: 'Poolside', address: 'Taj Vivanta, Bengaluru', dress_code: 'Yellow', theme_color: '#f4d03f', sequence: 2, map_url: 'https://maps.google.com' },
-    { name: 'Sangeet', event_date: futureDate(WED - 1), start_time: '19:00', end_time: '23:30', venue: 'Grand Ballroom', address: 'Taj Vivanta, Bengaluru', dress_code: 'Indo-western glam', theme_color: '#6f1d5b', sequence: 3, map_url: 'https://maps.google.com' },
-    { name: 'Wedding Ceremony', event_date: futureDate(WED), start_time: '19:30', end_time: '23:00', venue: 'Mandap Lawn', address: 'Taj Vivanta, Bengaluru', dress_code: 'Traditional formal', theme_color: '#9c294b', sequence: 4, map_url: 'https://maps.google.com' },
-    { name: 'Reception', event_date: futureDate(WED + 1), start_time: '19:00', end_time: '23:00', venue: 'Crystal Hall', address: 'Taj Vivanta, Bengaluru', dress_code: 'Cocktail / formal', theme_color: '#1f3a5f', sequence: 5, map_url: 'https://maps.google.com' },
+    { name: 'Mehndi', event_date: '2026-12-20', start_time: '11:00', end_time: '15:00', venue: 'Rose Garden Lawn', address: 'Taj Vivanta, Bengaluru', dress_code: 'Bright florals', theme_color: '#f2b705', sequence: 1, map_url: 'https://maps.google.com' },
+    { name: 'Haldi', event_date: '2026-12-21', start_time: '09:00', end_time: '12:00', venue: 'Poolside', address: 'Taj Vivanta, Bengaluru', dress_code: 'Yellow', theme_color: '#f4d03f', sequence: 2, map_url: 'https://maps.google.com' },
+    { name: 'Sangeet', event_date: '2026-12-21', start_time: '19:00', end_time: '23:30', venue: 'Grand Ballroom', address: 'Taj Vivanta, Bengaluru', dress_code: 'Indo-western glam', theme_color: '#6f1d5b', sequence: 3, map_url: 'https://maps.google.com' },
+    { name: 'Wedding Ceremony', event_date: '2026-12-22', start_time: '10:30', end_time: '14:00', venue: 'Mandap Lawn', address: 'Taj Vivanta, Bengaluru', dress_code: 'Traditional formal', theme_color: '#9c294b', sequence: 4, map_url: 'https://maps.google.com' },
+    { name: 'Reception', event_date: '2026-12-22', start_time: '19:00', end_time: '23:00', venue: 'Crystal Hall', address: 'Taj Vivanta, Bengaluru', dress_code: 'Cocktail / formal', theme_color: '#1f3a5f', sequence: 5, map_url: 'https://maps.google.com' },
   ].map(f => db.create('functions', f));
 
   const allFn = functions.map(f => f.id);
