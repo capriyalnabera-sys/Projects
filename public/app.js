@@ -136,6 +136,7 @@ async function renderDashboard() {
         <div class="sub">for out-of-town guests</div></div>
     </div>
     <p class="section-help" style="margin-top:22px">Tip: start with <b>Functions</b> (your events), then add <b>Guests</b> and send them their personalised invite links from the Guests tab.</p>
+    <p class="section-help" style="margin-top:-8px">Backup anytime with <b>⬇ Excel</b> (top-right) — one workbook with every module as a tab, ready to open or import into Google Sheets.</p>
   `;
 }
 

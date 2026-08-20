@@ -5,6 +5,7 @@
 const express = require('express');
 const router = express.Router();
 const db = require('../db');
+const { buildWorkbook } = require('../sheets');
 
 const RESOURCES = Object.keys(db.SCHEMA);
 function isResource(name) { return RESOURCES.includes(name); }
@@ -35,6 +36,21 @@ router.get('/guests/:id/functions', (req, res) => {
 router.put('/guests/:id/functions', (req, res) => {
   const ids = Array.isArray(req.body.function_ids) ? req.body.function_ids.map(Number) : [];
   res.json(db.setGuestFunctions(Number(req.params.id), ids));
+});
+
+// ---- Full workbook export (all modules -> one .xlsx, Google-Sheets ready) ----
+router.get('/export.xlsx', async (req, res) => {
+  try {
+    const proto = req.headers['x-forwarded-proto'] || req.protocol;
+    const baseUrl = `${proto}://${req.get('host')}`;
+    const wb = buildWorkbook(baseUrl);
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', 'attachment; filename="Wedding_AP-planner.xlsx"');
+    await wb.xlsx.write(res);
+    res.end();
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
 });
 
 // ---- CSV export for the Google Sheets mirror / backup ----
