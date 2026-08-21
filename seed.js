@@ -39,11 +39,11 @@ function futureDate(daysFromNow) {
   });
 
   const functions = [
-    { name: 'Mehndi', event_date: '2026-12-20', start_time: '11:00', end_time: '15:00', venue: 'Rose Garden Lawn', address: 'Taj Vivanta, Bengaluru', dress_code: 'Bright florals', theme_color: '#f2b705', sequence: 1, map_url: 'https://maps.google.com' },
-    { name: 'Haldi', event_date: '2026-12-21', start_time: '09:00', end_time: '12:00', venue: 'Poolside', address: 'Taj Vivanta, Bengaluru', dress_code: 'Yellow', theme_color: '#f4d03f', sequence: 2, map_url: 'https://maps.google.com' },
-    { name: 'Sangeet', event_date: '2026-12-21', start_time: '19:00', end_time: '23:30', venue: 'Grand Ballroom', address: 'Taj Vivanta, Bengaluru', dress_code: 'Indo-western glam', theme_color: '#6f1d5b', sequence: 3, map_url: 'https://maps.google.com' },
-    { name: 'Wedding Ceremony', event_date: '2026-12-22', start_time: '10:30', end_time: '14:00', venue: 'Mandap Lawn', address: 'Taj Vivanta, Bengaluru', dress_code: 'Traditional formal', theme_color: '#9c294b', sequence: 4, map_url: 'https://maps.google.com' },
-    { name: 'Reception', event_date: '2026-12-22', start_time: '19:00', end_time: '23:00', venue: 'Crystal Hall', address: 'Taj Vivanta, Bengaluru', dress_code: 'Cocktail / formal', theme_color: '#1f3a5f', sequence: 5, map_url: 'https://maps.google.com' },
+    { name: 'DJ Party', event_date: '2026-12-20', start_time: '20:00', theme_color: '#6f1d5b', sequence: 1, description: 'Pre-wedding warm-up — lights, beats and the dance floor is all yours. 🕺' },
+    { name: 'Haldi Carnival', event_date: '2026-12-21', start_time: '10:30', theme_color: '#f4c20d', sequence: 2, description: 'Turmeric, sunshine and plenty of mischief — come get gloriously messy! 💛' },
+    { name: 'Sangeet', event_date: '2026-12-21', start_time: '19:30', theme_color: '#9c294b', sequence: 3, description: 'Song, dance and full-on drama — let the performances begin! 🎶' },
+    { name: 'Wedding Procession', event_date: '2026-12-22', start_time: '09:00', theme_color: '#c56a1a', sequence: 4, description: 'Dhol, dhamaka and the grand baraat — dance the couple in! 🥁' },
+    { name: 'Eternal Vows', event_date: '2026-12-22', start_time: '12:00', theme_color: '#b8892b', sequence: 5, description: 'The moment two souls become one — witness the sacred vows. 💍' },
   ].map(f => db.create('functions', f));
 
   const allFn = functions.map(f => f.id);
