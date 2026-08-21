@@ -275,7 +275,7 @@
 
           ${floralDivider()}
           <h2 class="section">Schedule of Events</h2>
-          <div class="section-sub">${invited.length?`You're specially invited to ${invited.length} of these`:'The full celebration'}</div>
+          <div class="section-sub">Join us for the celebrations 💕</div>
           ${DATA.functions.map(eventCard).join('') || '<p style="text-align:center;color:var(--muted)">Details coming soon.</p>'}
 
           ${travelBlock()}
@@ -296,8 +296,7 @@
     }
 
     function eventCard(f){
-      return `<div class="event ${f.invited?'invited':''}">
-        ${f.invited?'<div class="badge">You\'re invited</div>':''}
+      return `<div class="event">
         <h3>${esc(f.name)}</h3>
         <div class="when">${fmtDate(f.event_date)}${f.start_time?' · '+fmtTime(f.start_time):''}${f.end_time?' – '+fmtTime(f.end_time):''}</div>
         <div class="meta">
