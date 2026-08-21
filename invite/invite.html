@@ -320,22 +320,11 @@
             <div class="choice" data-v="no">Regretfully decline</div>
           </div>
           <div id="yesBlock">
-            <label>Which functions will you attend?</label>
-            <div id="fnList">
-              ${invited.map(f=>`<div class="fn-rsvp"><span>${esc(f.name)}</span>
-                <div class="toggle" data-fn="${f.id}">
-                  <div class="mini" data-v="yes">Yes</div><div class="mini" data-v="no">No</div>
-                </div></div>`).join('')}
-            </div>
             <label>Total number of guests (including you)</label>
             <input type="number" id="headcount" min="1" value="${g.headcount||1}"/>
-            <label>Meal preference</label>
-            <select id="meal">
-              ${['','Veg','Non-veg','Jain','Vegan','No preference'].map(o=>`<option value="${o}" ${o===g.meal_preference?'selected':''}>${o||'Select…'}</option>`).join('')}
-            </select>
           </div>
-          <label>A note, song request or dietary need (optional)</label>
-          <textarea id="message" placeholder="Send your blessings, a song you'd love to hear, or any dietary needs…"></textarea>
+          <label>A note or song request (optional)</label>
+          <textarea id="message" placeholder="Send your blessings, a song you'd love to hear, or any message…"></textarea>
           <button class="btn-submit serif" onclick="submitRsvp()">Send RSVP</button>
         </div>`;
     }
@@ -348,12 +337,6 @@
         };
       });
       document.querySelector('#attend .choice[data-v="yes"]').click();
-      document.querySelectorAll('.toggle').forEach(t=>{
-        const fn=t.dataset.fn;
-        const set=v=>{ state.fnRsvp[fn]=v; t.querySelectorAll('.mini').forEach(m=>m.classList.toggle('on',m.dataset.v===v)); };
-        t.querySelectorAll('.mini').forEach(m=>m.onclick=()=>set(m.dataset.v));
-        set(state.fnRsvp[fn]||'yes');
-      });
     }
 
     function renderCountdown(date){
@@ -368,7 +351,6 @@
       const payload={
         attending: state.attending,
         headcount: Number(document.getElementById('headcount')?.value)||1,
-        meal_preference: document.getElementById('meal')?.value||'',
         message: document.getElementById('message')?.value||'',
         functions: Object.entries(state.fnRsvp).map(([function_id,rsvp])=>({function_id:Number(function_id), rsvp: rsvp==='no'?'No':'Yes'}))
       };

@@ -77,7 +77,6 @@ const SCHEMA = {
       { key: 'category', label: 'Group', type: 'select', options: ['Family', 'Relatives', 'Friends', 'Colleagues', 'Neighbours', 'Other'] },
       { key: 'city', label: 'City', type: 'text' },
       { key: 'headcount', label: 'Headcount', type: 'number' },
-      { key: 'meal_preference', label: 'Meal', type: 'select', options: ['Veg', 'Non-veg', 'Jain', 'Vegan', 'No preference'] },
       { key: 'rsvp_status', label: 'RSVP', type: 'select', options: ['Pending', 'Yes', 'No', 'Maybe'] },
       { key: 'invite_sent', label: 'Invite sent', type: 'checkbox' },
       { key: 'rsvp_message', label: 'RSVP message', type: 'textarea' },
@@ -590,7 +589,7 @@ function getInviteData(token) {
   return {
     guest: {
       id: guest.id, name: guest.name, rsvp_status: guest.rsvp_status,
-      headcount: guest.headcount, meal_preference: guest.meal_preference,
+      headcount: guest.headcount,
     },
     functions,
     settings: publicSettings(),
@@ -603,8 +602,8 @@ function submitRsvp(token, payload) {
   // Overall guest RSVP + meal + headcount
   const overall = payload.attending === 'no' ? 'No' : (payload.attending === 'maybe' ? 'Maybe' : 'Yes');
   db.run(
-    `UPDATE guests SET rsvp_status = ?, headcount = ?, meal_preference = COALESCE(?, meal_preference), rsvp_message = COALESCE(?, rsvp_message) WHERE id = ?`,
-    [overall, payload.headcount ?? guest.headcount ?? null, payload.meal_preference || null,
+    `UPDATE guests SET rsvp_status = ?, headcount = ?, rsvp_message = COALESCE(?, rsvp_message) WHERE id = ?`,
+    [overall, payload.headcount ?? guest.headcount ?? null,
      payload.message ? String(payload.message) : null, guest.id]
   );
   // Per-function RSVP
