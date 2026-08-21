@@ -39,11 +39,11 @@ function futureDate(daysFromNow) {
   });
 
   const functions = [
-    { name: 'DJ Party', event_date: '2026-12-20', start_time: '20:00', theme_color: '#6f1d5b', sequence: 1, description: 'Pre-wedding warm-up with lights, beats and the dance floor all yours. 🕺' },
-    { name: 'Haldi Carnival', event_date: '2026-12-21', start_time: '10:30', theme_color: '#f4c20d', sequence: 2, description: 'Turmeric, sunshine and plenty of mischief. Come get gloriously messy! 💛' },
-    { name: 'Sangeet', event_date: '2026-12-21', start_time: '19:30', theme_color: '#9c294b', sequence: 3, description: 'Song, dance and full-on drama. Let the performances begin! 🎶' },
-    { name: 'Wedding Procession', event_date: '2026-12-22', start_time: '09:00', theme_color: '#c56a1a', sequence: 4, description: 'Dhol, dhamaka and the grand baraat. Dance the couple in! 🥁' },
-    { name: 'Eternal Vows', event_date: '2026-12-22', start_time: '12:00', theme_color: '#b8892b', sequence: 5, description: 'The moment two souls become one. Witness the sacred vows. 💍' },
+    { name: 'DJ Party', event_date: '2026-12-20', start_time: '20:00', dress_code: 'Party glam', theme_color: '#6f1d5b', sequence: 1, description: 'Pre-wedding warm-up with lights, beats and the dance floor all yours. 🕺' },
+    { name: 'Haldi Carnival', event_date: '2026-12-21', start_time: '10:30', dress_code: 'Yellow & flowers', theme_color: '#f4c20d', sequence: 2, description: 'Turmeric, sunshine and plenty of mischief. Come get gloriously messy! 💛' },
+    { name: 'Sangeet', event_date: '2026-12-21', start_time: '19:30', dress_code: 'Indo-western glam', theme_color: '#9c294b', sequence: 3, description: 'Song, dance and full-on drama. Let the performances begin! 🎶' },
+    { name: 'Wedding Procession', event_date: '2026-12-22', start_time: '09:00', dress_code: 'Festive Indian', theme_color: '#c56a1a', sequence: 4, description: 'Dhol, dhamaka and the grand baraat. Dance the couple in! 🥁' },
+    { name: 'Eternal Vows', event_date: '2026-12-22', start_time: '12:00', dress_code: 'Traditional elegance', theme_color: '#b8892b', sequence: 5, description: 'The moment two souls become one. Witness the sacred vows. 💍' },
   ].map(f => db.create('functions', f));
 
   const allFn = functions.map(f => f.id);
