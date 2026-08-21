@@ -275,9 +275,12 @@
       if(!DATA) return;
       const btn=document.getElementById('musicBtn'); const url=(DATA.settings.music_url||'').trim();
       if(_musicOn){ stopMusic(); _musicOn=false; if(btn){btn.classList.remove('playing'); btn.textContent='🎵';} return; }
-      if(/^https?:\/\//i.test(url)){ if(!_audio){ _audio=new Audio(url); _audio.loop=true; _audio.volume=.5; } _audio.play().catch(()=>{}); }
-      else { startAmbient(); }
-      _musicOn=true; if(btn){ btn.classList.add('playing'); btn.textContent='🔊'; }
+      const started=()=>{ _musicOn=true; if(btn){ btn.classList.add('playing'); btn.textContent='🔊'; } };
+      if(url){
+        // Accepts a direct audio-file link (…​.mp3/.ogg) or a same-site path (/song.mp3).
+        if(!_audio){ _audio=new Audio(url); _audio.loop=true; _audio.volume=.5; }
+        _audio.play().then(started).catch(()=>{ startAmbient(); started(); }); // fall back to the gentle built-in tune
+      } else { startAmbient(); started(); }
     }
     function fmtTime(t){
       if(!t) return '';
