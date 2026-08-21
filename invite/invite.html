@@ -28,7 +28,9 @@
       border:1px solid rgba(156,41,80,.5);background:radial-gradient(circle at 50% 42%, #fff, #fdf3f7);
       display:flex;align-items:center;justify-content:center;}
     .monogram::after{content:'';position:absolute;inset:7px;border-radius:50%;border:1px solid rgba(156,41,80,.3);}
-    .monogram .mono{position:relative;z-index:1;font-family:'Great Vibes',cursive;font-size:52px;line-height:1;color:var(--accent);padding-top:10px;white-space:nowrap;}
+    .monogram{overflow:hidden;gap:2px;}
+    .monogram .mi{position:relative;z-index:1;font-family:'Cormorant Garamond',Georgia,serif;font-weight:600;font-size:41px;line-height:1;color:var(--accent);}
+    .monogram .amp{position:relative;z-index:1;top:1px;font-family:'Great Vibes',cursive;font-size:33px;line-height:1;color:var(--accent);opacity:.92;}
     .pre{letter-spacing:.35em;text-transform:uppercase;font-size:11px;color:var(--muted);}
     .names{font-family:'Cormorant Garamond',serif;font-size:58px;line-height:1.05;margin:10px 0;color:var(--ink);font-weight:600;}
     .names .amp{color:var(--accent);font-style:italic;font-weight:400;}
@@ -254,7 +256,7 @@
           ${floralCorner('floral-tl')}
           ${floralCorner('floral-tr')}
           <div class="hero-inner">
-            <div class="monogram"><span class="mono">${esc(s.couple_initials||'A&P')}</span></div>
+            <div class="monogram"><span class="mi">${esc((s.bride_name||'A').trim()[0]||'A')}</span><span class="amp">&amp;</span><span class="mi">${esc((s.groom_name||'P').trim()[0]||'P')}</span></div>
             <div class="pre">Together with their families</div>
             <div class="names serif">${esc(s.bride_name||'Bride')} <span class="amp">&amp;</span> ${esc(s.groom_name||'Groom')}</div>
             <div class="tagline">${esc(s.tagline||'request the pleasure of your company')}</div>
@@ -359,7 +361,7 @@
         if(!r.ok) throw new Error();
         const s=DATA.settings;
         document.getElementById('app').innerHTML=`<div class="thanks">
-          <div class="monogram" style="margin:0 auto 24px"><span class="mono">${esc(s.couple_initials||'A&P')}</span></div>
+          <div class="monogram" style="margin:0 auto 24px"><span class="mi">${esc((s.bride_name||'A').trim()[0]||'A')}</span><span class="amp">&amp;</span><span class="mi">${esc((s.groom_name||'P').trim()[0]||'P')}</span></div>
           <div class="big">Thank you!</div>
           <p style="color:var(--muted);max-width:420px;margin:12px auto">${state.attending==='no'
             ? 'We\'ll miss you, but thank you for letting us know. Sending you love.'

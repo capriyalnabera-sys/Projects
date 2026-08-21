@@ -49,7 +49,7 @@ a { color: var(--accent); }
   position: sticky; top: 0; height: 100vh; overflow-y: auto;
 }
 .brand { padding: 6px 10px 18px; border-bottom: 1px solid var(--line); margin-bottom: 12px; }
-.brand .initials { font-family: 'Great Vibes', cursive; font-size: 40px; color: var(--accent); letter-spacing: 1px; line-height: 1.1; }
+.brand .initials { font-family: 'Cormorant Garamond', Georgia, serif; font-weight: 600; font-size: 30px; color: var(--accent); letter-spacing: 1px; line-height: 1.1; }
 .brand .sub { font-size: 12px; color: var(--muted); margin-top: 2px; letter-spacing: .04em; }
 .nav a {
   display: flex; align-items: center; gap: 11px; padding: 10px 12px; border-radius: 11px;
