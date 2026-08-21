@@ -27,7 +27,7 @@ function futureDate(daysFromNow) {
     couple_initials: 'A & P',
     wedding_date: '2026-12-20',
     wedding_date_end: '2026-12-22',
-    hashtag: '#AkanshaWedsPriyal',
+    hashtag: '#HappilyEverAP',
     tagline: 'Two souls, one beautiful journey',
     cover_message: 'Together with our families, we joyfully invite you to share in our happiness as we begin our new life together.',
     rsvp_deadline: '2026-12-06',

@@ -350,7 +350,7 @@ const DEFAULT_SETTINGS = {
   couple_initials: 'A & P',
   wedding_date: '2026-12-20',
   wedding_date_end: '2026-12-22',
-  hashtag: '#AkanshaWedsPriyal',
+  hashtag: '#HappilyEverAP',
   tagline: 'Two hearts, one journey',
   cover_message: 'Together with our families, we joyfully invite you to celebrate our wedding.',
   contact_name: '',
