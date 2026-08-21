@@ -116,6 +116,34 @@
       font-size:18px;display:flex;align-items:center;justify-content:center;transition:transform .15s,background .15s;}
     .music-btn:hover{transform:scale(1.08);}
     .music-btn.playing{background:var(--accent-soft);border-color:var(--accent);}
+
+    /* Extra background botanicals */
+    .bg-fl-tl{position:fixed;left:-52px;top:-42px;width:250px;height:250px;opacity:.06;transform:rotate(-6deg);z-index:0;}
+    .bg-fl-ml{position:fixed;left:-64px;top:44%;width:220px;height:220px;opacity:.05;transform:rotate(84deg);z-index:0;}
+    .bg-fl-mr{position:fixed;right:-64px;top:20%;width:220px;height:220px;opacity:.05;transform:scaleX(-1) rotate(-84deg);z-index:0;}
+
+    /* Landing / entrance animation */
+    #intro{position:fixed;inset:0;z-index:400;overflow:hidden;display:flex;align-items:center;justify-content:center;
+      background:radial-gradient(125% 125% at 50% 0%, #ffffff 0%, var(--accent-soft) 62%, #f0d2dd 100%);
+      transition:opacity .9s ease, transform .9s ease;}
+    #intro.done{opacity:0;transform:translateY(-24px);pointer-events:none;}
+    .intro-inner{position:relative;z-index:2;text-align:center;padding:0 24px;}
+    .intro-mono{width:118px !important;height:118px !important;margin:0 auto 22px !important;animation:introPop 1.1s cubic-bezier(.2,.8,.2,1) both;}
+    .intro-mono .mi{font-size:47px;}
+    .intro-pre{letter-spacing:.3em;text-transform:uppercase;font-size:11px;color:var(--muted);animation:introRise 1s ease .55s both;}
+    .intro-names{font-family:'Cormorant Garamond',Georgia,serif;font-weight:600;font-size:44px;line-height:1.1;color:var(--accent);margin-top:10px;animation:introRise 1s ease .95s both;}
+    .intro-hint{margin-top:30px;font-size:11px;letter-spacing:.22em;text-transform:uppercase;color:var(--muted);
+      animation:introRise 1s ease 1.7s both, introPulse 1.9s ease 2.7s infinite;}
+    .intro-fl{position:absolute;pointer-events:none;z-index:1;width:240px;height:240px;animation:introFade 1.5s ease .15s both;}
+    .intro-fl.tl{top:-34px;left:-34px;}
+    .intro-fl.tr{top:-34px;right:-34px;transform:scaleX(-1);}
+    .intro-fl.bl{bottom:-40px;left:-30px;transform:scaleY(-1);opacity:.75;}
+    .intro-fl.br{bottom:-40px;right:-30px;transform:scale(-1,-1);opacity:.75;}
+    @keyframes introPop{0%{opacity:0;transform:scale(.6)}60%{opacity:1}100%{opacity:1;transform:scale(1)}}
+    @keyframes introRise{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:none}}
+    @keyframes introFade{from{opacity:0}to{opacity:1}}
+    @keyframes introPulse{0%,100%{opacity:.45}50%{opacity:1}}
+    @media(prefers-reduced-motion:reduce){#intro *{animation-duration:.01s !important;}}
   </style>
 </head>
 <body>
@@ -169,6 +197,34 @@
       return `<svg class="footer-sprig" viewBox="0 0 120 30" aria-hidden="true">${fLeaf(40,15,150,.55)}${fLeaf(80,15,30,.55)}${fBloom(60,15,0.7,'#d98aa8','#ecb6c9')}</svg>`;
     }
 
+    // --- landing / entrance animation shown before the invite ---
+    let _introTimer=null;
+    function buildIntro(){
+      const div=document.createElement('div');
+      div.id='intro'; div.onclick=dismissIntro;
+      div.innerHTML=`
+        ${floralCorner('intro-fl tl')}${floralCorner('intro-fl tr')}${floralCorner('intro-fl bl')}${floralCorner('intro-fl br')}
+        <div class="intro-inner">
+          <div class="monogram intro-mono"><span class="mi" id="introA">A</span><span class="amp">&amp;</span><span class="mi" id="introP">P</span></div>
+          <div class="intro-pre">You are cordially invited to celebrate</div>
+          <div class="intro-names" id="introNames">&nbsp;</div>
+          <div class="intro-hint">tap to open</div>
+        </div>`;
+      document.body.appendChild(div);
+    }
+    function fillIntro(s){
+      if(!s) return;
+      const n=document.getElementById('introNames'); if(n) n.textContent=(s.bride_name||'')+' & '+(s.groom_name||'');
+      const a=document.getElementById('introA'), p=document.getElementById('introP');
+      if(a) a.textContent=((s.bride_name||'A').trim()[0]||'A');
+      if(p) p.textContent=((s.groom_name||'P').trim()[0]||'P');
+    }
+    function dismissIntro(){
+      const el=document.getElementById('intro'); if(!el||el.classList.contains('done')) return;
+      if(_introTimer){ clearTimeout(_introTimer); _introTimer=null; }
+      el.classList.add('done'); setTimeout(()=>{ if(el.parentNode) el.remove(); }, 950);
+    }
+
     // --- optional invite sections (shown only when the couple fills them in) ---
     function storyBlock(){
       const txt=(DATA.settings.our_story||'').trim(); if(!txt) return '';
@@ -186,12 +242,12 @@
     }
     function travelBlock(){
       const txt=(DATA.settings.travel_info||'').trim(); if(!txt) return '';
-      return `<h2 class="section">Travel &amp; Stay</h2><div class="section-sub">Everything you need to reach us</div>
+      return `${floralDivider()}<h2 class="section">Travel &amp; Stay</h2><div class="section-sub">Everything you need to reach us</div>
         <div class="info-card"><p>${esc(txt)}</p></div>`;
     }
     function blessingBlock(){
       const txt=(DATA.settings.gift_note||'').trim(); if(!txt) return '';
-      return `<h2 class="section">With Your Blessings</h2><div class="blessing"><div class="icon">💝</div><p>${esc(txt)}</p></div>`;
+      return `${floralDivider()}<h2 class="section">With Your Blessings</h2><div class="blessing"><div class="icon">💝</div><p>${esc(txt)}</p></div>`;
     }
 
     // --- background music: soft self-contained synth ambient, or a URL if the couple set one ---
@@ -239,9 +295,12 @@
         DATA = await r.json();
         DATA.functions.filter(f=>f.invited).forEach(f=>{ state.fnRsvp[f.id] = (f.rsvp==='No'?'no':'yes'); });
         render();
+        fillIntro(DATA.settings);
+        _introTimer=setTimeout(dismissIntro, 2600);
       }catch(e){
         document.getElementById('app').innerHTML =
           `<div class="error">This invitation link doesn't seem to be valid.<br><span style="font-size:15px;font-family:Poppins">Please check with the couple for your personal link.</span></div>`;
+        dismissIntro();
       }
     }
 
@@ -251,7 +310,7 @@
       const firstDate = (DATA.functions.find(f=>f.event_date)||{}).event_date || s.wedding_date;
 
       document.getElementById('app').innerHTML = `
-        ${floralCorner('bg-fl-br')}
+        ${floralCorner('bg-fl-br')}${floralCorner('bg-fl-tl')}${floralCorner('bg-fl-ml')}${floralCorner('bg-fl-mr')}
         <div class="hero">
           ${floralCorner('floral-tl')}
           ${floralCorner('floral-tr')}
@@ -319,10 +378,6 @@
             <div class="choice" data-v="maybe">Maybe</div>
             <div class="choice" data-v="no">Regretfully decline</div>
           </div>
-          <div id="yesBlock">
-            <label>Total number of guests (including you)</label>
-            <input type="number" id="headcount" min="1" value="${g.headcount||1}"/>
-          </div>
           <label>A note or song request (optional)</label>
           <textarea id="message" placeholder="Send your blessings, a song you'd love to hear, or any message…"></textarea>
           <button class="btn-submit serif" onclick="submitRsvp()">Send RSVP</button>
@@ -333,7 +388,6 @@
       document.querySelectorAll('#attend .choice').forEach(c=>{
         c.onclick=()=>{ state.attending=c.dataset.v;
           document.querySelectorAll('#attend .choice').forEach(x=>x.classList.toggle('on',x===c));
-          document.getElementById('yesBlock').classList.toggle('hidden', state.attending==='no');
         };
       });
       document.querySelector('#attend .choice[data-v="yes"]').click();
@@ -350,7 +404,6 @@
     async function submitRsvp(){
       const payload={
         attending: state.attending,
-        headcount: Number(document.getElementById('headcount')?.value)||1,
         message: document.getElementById('message')?.value||'',
         functions: Object.entries(state.fnRsvp).map(([function_id,rsvp])=>({function_id:Number(function_id), rsvp: rsvp==='no'?'No':'Yes'}))
       };
@@ -371,6 +424,7 @@
       }catch(e){ alert('Something went wrong sending your RSVP. Please try again.'); }
     }
 
+    buildIntro();
     load();
   </script>
 </body>

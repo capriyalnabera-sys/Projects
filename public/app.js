@@ -138,7 +138,7 @@ async function renderDashboard() {
         <div class="sub">for out-of-town guests</div></div>
     </div>
     <p class="section-help" style="margin-top:22px">Tip: start with <b>Functions</b> (your events), then add <b>Guests</b> and send them their personalised invite links from the Guests tab.</p>
-    <p class="section-help" style="margin-top:-8px">Backup anytime with <b>⬇ Excel</b> (top-right) — one workbook with every module as a tab, ready to open or import into Google Sheets.</p>
+    <p class="section-help" style="margin-top:-8px">Backup anytime with <b>⬇ Excel</b> (top-right): one workbook with every module as a tab, ready to open or import into Google Sheets.</p>
     ${syncPanel(syncStatus)}
   `;
 }
@@ -165,7 +165,7 @@ function syncPanel(st) {
     return `<div class="card" style="grid-column:1/-1;margin-top:8px">
       <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap">
         <div>
-          <div class="k">🔄 Google Sheets sync — connected</div>
+          <div class="k">🔄 Google Sheets sync · connected</div>
           <div class="sub">${st.sheetUrl ? `<a href="${esc(safeUrl(st.sheetUrl))}" target="_blank" rel="noopener">Open the Sheet</a> · ` : ''}service account: ${esc(st.serviceAccount || '')}</div>
         </div>
         <div style="display:flex;gap:8px">
@@ -175,7 +175,7 @@ function syncPanel(st) {
       </div></div>`;
   }
   return `<div class="card" style="grid-column:1/-1;margin-top:8px">
-    <div class="k">🔄 Google Sheets sync — not set up</div>
+    <div class="k">🔄 Google Sheets sync · not set up</div>
     <div class="sub">Add a Google service account and a Sheet ID (env: <code>GOOGLE_SHEET_ID</code>, <code>GOOGLE_SERVICE_ACCOUNT_JSON</code>) to enable two-way sync. See the README. Until then, use <b>⬇ Excel</b> above.</div>
   </div>`;
 }
@@ -400,7 +400,7 @@ function inviteMessage(name, token) {
 function waInvite(id) {
   const g = (editingRow && String(editingRow.id) === String(id)) ? editingRow : (state.rows || []).find(r => String(r.id) === String(id));
   if (!g) { toast('Guest not found'); return; }
-  if (!g.invite_token) { toast('No invite link yet — save the guest first'); return; }
+  if (!g.invite_token) { toast('No invite link yet. Save the guest first'); return; }
   const digits = (g.phone || '').replace(/\D/g, '');
   const url = `https://wa.me/${digits}?text=${encodeURIComponent(inviteMessage(g.name, g.invite_token))}`;
   window.open(url, '_blank', 'noopener');
@@ -427,9 +427,9 @@ async function renderSettings() {
     ['our_story', 'Our story (invite section)', 'textarea'],
     ['travel_info', 'Travel & stay info (invite section)', 'textarea'],
     ['gift_note', 'Gifts / blessings note (invite section)', 'textarea'],
-    ['gallery_urls', 'Photo URLs for the gallery — one per line', 'textarea'],
+    ['gallery_urls', 'Photo URLs for the gallery, one per line', 'textarea'],
     ['music_url', 'Background music URL (optional; blank = soft ambient)', 'text'],
-    ['invite_message_template', 'WhatsApp invite message — placeholders: {name} {link} {bride} {groom} {date} {hashtag}', 'textarea'],
+    ['invite_message_template', 'WhatsApp invite message · placeholders: {name} {link} {bride} {groom} {date} {hashtag}', 'textarea'],
     ['rsvp_deadline', 'RSVP by', 'date'],
     ['contact_name', 'Contact person', 'text'],
     ['contact_phone', 'Contact phone', 'text'],
