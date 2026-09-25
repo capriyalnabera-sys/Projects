@@ -1,0 +1,26 @@
+risk_profile: balanced_aggressive
+
+telegram:
+  api_id: 0
+  api_hash: ""
+  session_name: stock_analyzer
+  groups: []
+
+recommendation:
+  technical_weight: 0.45
+  fundamental_weight: 0.45
+  telegram_weight: 0.10
+
+cache:
+  dir: data/cache
+  ttl_minutes: 60
+
+# F&O module. Lot sizes are exchange-notified and revised a few times a year —
+# override here when they change (no code edit needed).
+fno:
+  lot_sizes:
+    NIFTY: 75
+    BANKNIFTY: 35
+    FINNIFTY: 65
+    MIDCPNIFTY: 140
+    SENSEX: 20

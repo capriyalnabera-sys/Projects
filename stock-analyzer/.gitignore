@@ -1,0 +1,28 @@
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.venv/
+venv/
+env/
+.env
+
+config.yaml
+
+*.session
+*.session-journal
+
+# Regenerable / live caches stay out; the analyzer's learned state (snapshots,
+# calibration, universe lists) is committed so a fresh clone works day one.
+data/cache/*
+!data/cache/snapshots/
+!data/cache/universe/
+!data/cache/calibration.json
+!data/cache/regime.json
+!data/cache/sector_stats.json
+!data/cache/fii_dii.json
+.cache/
+
+.DS_Store
+.idea/
+.vscode/

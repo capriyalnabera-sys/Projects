@@ -1,0 +1,265 @@
+{% extends "base.html" %}
+{% block content %}
+
+<div class="topbar">
+  <div>
+    <h2 style="margin: 0;">Today's recommendations</h2>
+    <div class="sub" style="margin: 4px 0 0;">
+      Universe: <strong>{{ universe_name | upper }}</strong> · {{ cached_count }}/{{ universe_total }} cached
+      {% if rows %} · avg score <strong class="{% if avg_score > 0 %}pos{% elif avg_score < 0 %}neg{% endif %}">{{ '{:+.2f}'.format(avg_score) }}</strong>{% endif %}
+      {% if status.running %}· <span style="color: var(--yellow);">refreshing {{ status.done }}/{{ status.total }}</span>
+      {% elif status.finished_at %}· last refresh {{ status.elapsed_sec }}s ago{% endif %}
+    </div>
+  </div>
+  <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
+    {% for u in universes %}
+      <a href="/?universe={{ u.name }}" class="uni-tab{% if u.active %} active{% endif %}">
+        {{ u.label }} <span style="opacity: 0.7;">({{ u.cached }})</span></a>
+    {% endfor %}
+    <button onclick="refresh()" class="secondary" style="margin-left: 8px;" title="Refresh only the currently-selected universe"><i data-lucide="refresh-cw"></i>Refresh</button>
+    <button onclick="refreshAll()" class="secondary" title="Refresh deduplicated tickers across every NIFTY universe (~10–15 min)"><i data-lucide="refresh-ccw-dot"></i>Refresh all</button>
+    {% for u in universes %}{% if u.is_big and u.active %}
+    <button onclick="fullSweep()" class="secondary" title="Sweep ALL ~5,000 NSE+BSE listed names (slow, ~15–25 min). Rebuilds the live set so future refreshes stay fast."><i data-lucide="globe"></i>Full sweep</button>
+    {% endif %}{% endfor %}
+    <a href="/screener" class="nav-link" title="Opens the full NSE+BSE tradeable set"><i data-lucide="filter"></i>Full screener</a>
+  </div>
+</div>
+
+{% if regime and regime.state and regime.state != 'unknown' %}
+<div class="regime-banner regime-{{ regime.state }}">
+  <div style="display: flex; align-items: center; gap: 10px;">
+    <i data-lucide="{% if regime.state == 'risk_off' %}cloud-rain{% elif regime.state == 'risk_on' %}sun{% else %}cloud{% endif %}" style="width: 20px; height: 20px;"></i>
+    <div>
+      <strong style="text-transform: uppercase; letter-spacing: 0.5px; font-size: 12px;">
+        Market regime: {{ regime.state.replace('_', ' ') }}
+      </strong>
+      <div style="font-size: 12px; opacity: 0.85; margin-top: 2px;">{{ regime.reason }}</div>
+      {% if fii and fii.signal and fii.signal != 'unknown' %}
+        <div style="font-size: 11px; opacity: 0.85; margin-top: 4px;">
+          <strong>FII/DII:</strong> {{ fii.reason }}
+          {% if fii.as_of %}<span style="opacity: 0.7;">· {{ fii.as_of }}</span>{% endif %}
+        </div>
+      {% endif %}
+    </div>
+  </div>
+  <div style="text-align: right; font-size: 11px; opacity: 0.85;">
+    NIFTY {{ '{:,.0f}'.format(regime.nifty_close) }} · 200SMA {{ '{:,.0f}'.format(regime.sma_200) }}
+    · ADX {{ regime.adx }}
+    {% if regime.state == 'risk_off' %}<br>Positive verdicts downgraded one band{% endif %}
+  </div>
+</div>
+<style>
+  .regime-banner { display: flex; justify-content: space-between; align-items: center; padding: 12px 18px; border-radius: var(--radius); margin-bottom: 18px; box-shadow: var(--shadow-sm); }
+  .regime-risk_off { background: var(--red-soft); color: var(--red); border-left: 3px solid var(--red-bright); }
+  .regime-risk_on  { background: var(--green-soft); color: var(--green); border-left: 3px solid var(--green-bright); }
+  .regime-neutral  { background: var(--yellow-soft); color: var(--yellow); border-left: 3px solid var(--yellow-bright); }
+</style>
+{% endif %}
+
+{% if rows %}
+<!-- Hero: verdict distribution bar -->
+<div class="card hero">
+  <div style="display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 12px; flex-wrap: wrap; gap: 8px;">
+    <h3 style="margin: 0; display: flex; align-items: center; gap: 6px;"><i data-lucide="pie-chart"></i>Verdict distribution</h3>
+    <span style="color: var(--muted); font-size: 12px;">across {{ rows | length }} stocks · click any segment to filter</span>
+  </div>
+  <div class="hero-bar">
+    {% for v, c in verdict_counts.items() %}
+      {% set pct = (c / total_verdict * 100) %}
+      {% if c > 0 %}
+        <a class="hero-seg seg-{{ v }}" style="width: {{ pct }}%;" title="{{ v }}: {{ c }} stocks ({{ '%.0f'|format(pct) }}%)" href="/screener?universe={{ universe_name }}#verdict={{ v }}">
+          {% if pct > 6 %}<span>{{ c }}</span>{% endif %}
+        </a>
+      {% endif %}
+    {% endfor %}
+  </div>
+  <div class="hero-legend">
+    {% for v, c in verdict_counts.items() %}
+      <div class="legend-item">
+        <span class="dot dot-{{ v }}"></span>
+        <span class="lbl">{{ v }}</span>
+        <span class="cnt">{{ c }}</span>
+      </div>
+    {% endfor %}
+  </div>
+</div>
+{% endif %}
+
+{% if not rows %}
+<div class="card" style="text-align: center; padding: 40px;">
+  <h2 style="color: var(--muted);">No data cached yet</h2>
+  <p style="color: var(--muted);">Click <strong>Refresh</strong> to analyze the {{ universe_name | upper }} universe.</p>
+  <button onclick="refresh()" style="margin-top: 12px;">Run NIFTY 50 batch (~80s)</button>
+</div>
+{% endif %}
+
+{% macro spark_svg(spark, color) %}
+  {% if spark and spark|length >= 2 %}
+    {% set lo = spark | min %}{% set hi = spark | max %}
+    {% set rng = (hi - lo) if (hi - lo) > 0 else 1 %}
+    {% set step = 80 / (spark|length - 1) %}
+    {% set pts = [] %}
+    {% for v in spark %}
+      {% set x = loop.index0 * step %}
+      {% set y = 24 - ((v - lo) / rng) * 22 %}
+      {% set _ = pts.append('%.1f,%.1f' % (x, y)) %}
+    {% endfor %}
+    <svg width="80" height="24" viewBox="0 0 80 24" style="display: block;">
+      <polyline fill="none" stroke="{{ color }}" stroke-width="1.4" points="{{ pts | join(' ') }}" />
+    </svg>
+  {% else %}
+    <div style="width: 80px; height: 24px;"></div>
+  {% endif %}
+{% endmacro %}
+
+{% macro pick_card(r, accent) %}
+{% set spark_color = '#4ade80' if r.combined_score > 0 else ('#f87171' if r.combined_score < 0 else '#8a93a6') %}
+<a href="/stock/{{ r.ticker }}" style="text-decoration: none;">
+  <div class="pick" style="border-left: 3px solid {{ accent }};">
+    <div style="display: flex; justify-content: space-between; align-items: baseline; gap: 8px;">
+      <strong style="font-size: 14px;">{{ r.ticker }}</strong>
+      <span class="verdict {{ r.verdict }}" style="font-size: 10px;">{{ r.verdict }}</span>
+    </div>
+    <div style="font-size: 11px; color: var(--muted); margin: 2px 0 8px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">{{ r.name }}</div>
+    <div class="spark-wrap">{{ spark_svg(r.spark, spark_color) }}</div>
+    <div style="display: flex; justify-content: space-between; font-size: 12px; margin-top: 6px;">
+      <span>₹{{ '{:,.0f}'.format(r.last_close) }}</span>
+      <span class="{% if r.combined_score > 0 %}pos{% else %}neg{% endif %}">{{ '{:+.2f}'.format(r.combined_score) }}</span>
+    </div>
+    {% set dc = r.get('day_change_pct') %}
+    {% set up = r.get('upside_pct') %}
+    {% if dc is not none %}
+      <div style="font-size: 11px; color: var(--muted); margin-top: 2px;">
+        Today <span class="{% if dc > 0 %}pos{% elif dc < 0 %}neg{% else %}neutral{% endif %}">{{ '{:+.2f}'.format(dc) }}%</span>
+        {% if up is not none %} · TGT <span class="pos">+{{ '{:.0f}'.format(up) }}%</span>{% endif %}
+      </div>
+    {% elif up is not none %}
+      <div style="font-size: 11px; color: var(--muted); margin-top: 2px;">
+        Target +{{ '{:.0f}'.format(up) }}% · Stop {{ '{:.0f}'.format(r.get('downside_pct', 0)) }}%
+      </div>
+    {% endif %}
+  </div>
+</a>
+{% endmacro %}
+
+<style>
+  .uni-tab { padding: 6px 12px; border-radius: 6px; text-decoration: none; color: var(--muted); border: 1px solid var(--border); font-size: 13px; transition: all 0.15s; background: var(--panel); }
+  .uni-tab.active { background: var(--accent); color: #ffffff; border-color: var(--accent); font-weight: 600; }
+  .uni-tab.active:hover { text-decoration: none; }
+  .uni-tab:not(.active):hover { color: var(--text); border-color: var(--muted); background: var(--panel-soft); text-decoration: none; }
+
+  .hero { padding: 20px 22px; }
+  .hero-bar { display: flex; height: 28px; border-radius: 6px; overflow: hidden; background: var(--panel-soft); }
+  .hero-seg { display: flex; align-items: center; justify-content: center; color: rgba(0,0,0,0.7); font-weight: 700; font-size: 11px; transition: filter 0.15s; }
+  .hero-seg:hover { filter: brightness(1.15); }
+  .seg-BUY        { background: #4ade80; }
+  .seg-ACCUMULATE { background: #86efac; }
+  .seg-HOLD       { background: #facc15; }
+  .seg-REDUCE     { background: #fb923c; }
+  .seg-AVOID      { background: #f87171; }
+  .hero-legend { display: flex; gap: 24px; flex-wrap: wrap; margin-top: 14px; font-size: 12px; }
+  .legend-item { display: flex; align-items: center; gap: 6px; }
+  .dot { width: 8px; height: 8px; border-radius: 2px; display: inline-block; }
+  .dot-BUY { background: #4ade80; } .dot-ACCUMULATE { background: #86efac; }
+  .dot-HOLD { background: #facc15; } .dot-REDUCE { background: #fb923c; } .dot-AVOID { background: #f87171; }
+  .legend-item .lbl { color: var(--muted); }
+  .legend-item .cnt { color: var(--text); font-weight: 600; }
+
+  .pick { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 12px 14px; cursor: pointer; transition: transform 0.1s, background 0.1s, border-color 0.1s; }
+  .pick:hover { background: var(--panel-soft); transform: translateY(-1px); border-color: #3a3f50; }
+  .picks-row { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 10px; margin-bottom: 24px; }
+  .section-title { font-size: 13px; color: var(--muted); margin: 0 0 10px; display: flex; align-items: center; gap: 8px; text-transform: uppercase; letter-spacing: 1px; font-weight: 600; }
+  .section-title .badge { background: var(--panel-soft); color: var(--muted); padding: 1px 8px; border-radius: 4px; font-size: 10px; letter-spacing: 0; font-weight: 500; }
+  .spark-wrap { line-height: 0; }
+</style>
+
+{% if top_buys %}
+<h3 class="section-title"><i data-lucide="trending-up" style="color: var(--green-bright);"></i> Top BUY / ACCUMULATE <span class="badge">{{ top_buys|length }}</span></h3>
+<div class="picks-row">
+  {% for r in top_buys %}{{ pick_card(r, '#22c55e') }}{% endfor %}
+</div>
+{% endif %}
+
+{% if high_upside %}
+<h3 class="section-title"><i data-lucide="rocket" style="color: var(--accent);"></i> Highest upside potential <span class="badge">positive verdicts only</span></h3>
+<div class="picks-row">
+  {% for r in high_upside %}{{ pick_card(r, '#2563eb') }}{% endfor %}
+</div>
+{% endif %}
+
+{% if oversold %}
+<h3 class="section-title"><i data-lucide="arrow-down-circle" style="color: var(--yellow-bright);"></i> Oversold + decent fundamentals <span class="badge">RSI &lt; 40</span></h3>
+<div class="picks-row">
+  {% for r in oversold %}{{ pick_card(r, '#f59e0b') }}{% endfor %}
+</div>
+{% endif %}
+
+{% if most_discussed %}
+<h3 class="section-title"><i data-lucide="message-square-text" style="color: var(--purple);"></i> Most discussed in research groups <span class="badge">last 7d</span></h3>
+<div class="picks-row">
+  {% for r in most_discussed %}{{ pick_card(r, '#7c3aed') }}{% endfor %}
+</div>
+{% endif %}
+
+{% if top_avoids %}
+<h3 class="section-title"><i data-lucide="shield-alert" style="color: var(--red-bright);"></i> Avoid / Reduce <span class="badge">cautionary</span></h3>
+<div class="picks-row">
+  {% for r in top_avoids %}{{ pick_card(r, '#ef4444') }}{% endfor %}
+</div>
+{% endif %}
+
+<div class="card" style="margin-top: 24px;">
+  <h2 style="margin: 0 0 10px; display: flex; align-items: center; gap: 6px;"><i data-lucide="search"></i>Ad-hoc analysis</h2>
+  <form action="/analyze" method="get">
+    <div class="form-row">
+      <input type="text" name="tickers" placeholder="NSE tickers, e.g. RELIANCE TCS HFCL">
+    </div>
+    <div class="form-row">
+      <label><input type="checkbox" name="telegram" value="1"> <i data-lucide="message-square-text" style="color: var(--purple);"></i> Include Telegram research-group signals</label>
+      <label>Days <input type="number" name="days" value="7" min="1" max="60" style="width: 60px;"></label>
+      <button type="submit"><i data-lucide="play"></i>Analyze</button>
+    </div>
+  </form>
+</div>
+
+<script>
+function refresh() {
+  fetch('/api/refresh?universe={{ universe_name }}', { method: 'POST' })
+    .then(r => r.json()).then(d => {
+      if (d.started) pollStatus();
+      else alert(d.reason || 'Could not start refresh');
+    });
+}
+function refreshAll() {
+  if (!confirm('Refresh ~700-800 stocks across all NIFTY universes? Takes ~10–15 min.')) return;
+  fetch('/api/refresh-all', { method: 'POST' })
+    .then(r => r.json()).then(d => {
+      if (d.started) pollStatus();
+      else alert(d.reason || 'Could not start refresh');
+    });
+}
+function fullSweep() {
+  if (!confirm('Full sweep of ALL ~5,000 NSE+BSE listed names?\n\nThis is slow (~15–25 min) and most BSE micro-caps will be illiquid/no-data. ' +
+    'Afterwards, routine "Refresh" of this universe only re-runs the proven-liquid live set (fast).\n\nProceed?')) return;
+  fetch('/api/refresh?universe={{ universe_name }}&full=1', { method: 'POST' })
+    .then(r => r.json()).then(d => {
+      if (d.started) pollStatus();
+      else alert(d.reason || 'Could not start full sweep');
+    });
+}
+function pollStatus() {
+  fetch('/api/status').then(r => r.json()).then(s => {
+    if (s.running) {
+      const subEl = document.querySelector('.sub');
+      if (subEl) subEl.innerHTML =
+        'Universe: <strong>{{ universe_name | upper }}</strong> · ' +
+        '<span style="color: var(--yellow);">refreshing ' + s.done + '/' + s.total + ' (' + (s.current || '—') + ')</span>';
+      setTimeout(pollStatus, 1500);
+    } else {
+      window.location.reload();
+    }
+  });
+}
+{% if status.running %}pollStatus();{% endif %}
+</script>
+{% endblock %}

@@ -1,0 +1,61 @@
+{
+  "available": true,
+  "n_snapshots": 35,
+  "target_horizon_days": 60,
+  "score_bands": [
+    {
+      "band": "\u2265+2",
+      "n": 1125,
+      "avg_return": 2.93,
+      "hit_rate": 57.6,
+      "verdict_guidance": "buy-grade"
+    },
+    {
+      "band": "+1 to +2",
+      "n": 3098,
+      "avg_return": 5.53,
+      "hit_rate": 61.3,
+      "verdict_guidance": "buy-grade"
+    },
+    {
+      "band": "0 to +1",
+      "n": 4910,
+      "avg_return": 4.49,
+      "hit_rate": 56.2,
+      "verdict_guidance": "buy-grade"
+    },
+    {
+      "band": "-1 to 0",
+      "n": 4291,
+      "avg_return": 9.15,
+      "hit_rate": 51.2,
+      "verdict_guidance": "buy-grade"
+    },
+    {
+      "band": "\u2264-1",
+      "n": 1440,
+      "avg_return": 1.36,
+      "hit_rate": 48.3,
+      "verdict_guidance": "neutral / no edge"
+    }
+  ],
+  "sectors": {
+    "Unknown": {
+      "n": 2641,
+      "avg_return": 5.03,
+      "hit_rate": 60.8,
+      "confidence": "moderate",
+      "note": "hit rate 61% / avg +5.0%"
+    }
+  },
+  "learned_buy_min_score": -1.0,
+  "no_discrimination": false,
+  "score_inverted": true,
+  "data_sufficient": true,
+  "apply_buy_floor": true,
+  "lessons": [
+    "Learned floor is raw-score -1.0, which is BELOW the 1.5 a BUY already needs \u2014 so it is not filtering anything today. Bands down to -1.0 were profitable at the 60d horizon, meaning the score is only weakly separating winners from losers in this window.",
+    "Score ordering is INVERTED at 60d: the '-1 to 0' band returned +9.2% vs only +2.9% for the top '\u2265+2' band. Higher scores did NOT produce better outcomes in this window, so treat the score as unreliable for ranking until this corrects."
+  ],
+  "computed_at": "2026-09-03T13:21:03"
+}

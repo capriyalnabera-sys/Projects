@@ -1,0 +1,1 @@
+{"state": "risk_off", "reason": "NIFTY 23,927 below 200SMA (24,631) for 10 sessions \u2014 downtrend confirmed", "nifty_close": 23927.2, "sma_200": 24630.54, "distance_from_200_pct": -2.86, "adx": 19.1, "plus_di": 17.5, "minus_di": 31.5, "vix": 11.27, "vix_label": "calm (VIX<15)", "hold_zone": 0.5, "computed_at": "2026-09-03T13:21:37"}

@@ -1,0 +1,191 @@
+{% extends "base.html" %}
+{% block content %}
+
+<div class="topbar">
+  <div>
+    <h2 style="margin: 0;">{{ universe_name | upper }} Dashboard</h2>
+    <div class="sub" style="margin: 4px 0 0;">{{ cached_count }} of {{ universe_total }} stocks cached
+      {% if status.finished_at and not status.running %}· last refresh {{ status.elapsed_sec }}s{% endif %}
+      {% if status.running %}· <span style="color: var(--yellow);">refreshing {{ status.done }}/{{ status.total }} ({{ status.current }})</span>{% endif %}
+    </div>
+  </div>
+  <div>
+    <button onclick="refresh()">{% if status.running %}Running...{% else %}Refresh{% endif %}</button>
+    <a href="/" style="margin-left: 12px; color: var(--muted);">Home</a>
+  </div>
+</div>
+
+<div class="grid" style="grid-template-columns: repeat(5, 1fr); gap: 8px; margin-bottom: 14px;">
+  {% for v, c in counts.items() %}
+  <div class="card" style="margin: 0; padding: 10px 14px; cursor: pointer;" onclick="filterVerdict('{{ v }}')">
+    <div><span class="verdict {{ v }}">{{ v }}</span></div>
+    <div style="font-size: 22px; font-weight: 600; margin-top: 6px;">{{ c }}</div>
+  </div>
+  {% endfor %}
+</div>
+
+<div class="card" style="padding: 12px 16px;">
+  <div class="form-row" style="margin: 0;">
+    <input type="text" id="search" placeholder="Search ticker or name..." style="flex: 1; min-width: 200px;" oninput="applyFilters()">
+    <select id="verdict-filter" onchange="applyFilters()" style="background: var(--panel-soft); border: 1px solid var(--border); color: var(--text); padding: 8px 10px; border-radius: 6px;">
+      <option value="">All verdicts</option>
+      <option value="BUY">BUY</option>
+      <option value="ACCUMULATE">ACCUMULATE</option>
+      <option value="HOLD">HOLD</option>
+      <option value="REDUCE">REDUCE</option>
+      <option value="AVOID">AVOID</option>
+    </select>
+    <select id="sector-filter" onchange="applyFilters()" style="background: var(--panel-soft); border: 1px solid var(--border); color: var(--text); padding: 8px 10px; border-radius: 6px;">
+      <option value="">All sectors</option>
+      {% for s in sectors %}<option value="{{ s }}">{{ s }}</option>{% endfor %}
+    </select>
+    <label><input type="checkbox" id="positive-only" onchange="applyFilters()"> Positive only</label>
+    <span id="row-count" style="color: var(--muted); font-size: 13px;"></span>
+  </div>
+</div>
+
+<div class="card" style="padding: 0; overflow-x: auto;">
+  <table id="dashboard-table" style="width: 100%; border-collapse: collapse; font-size: 13px;">
+    <thead>
+      <tr style="background: var(--panel-soft);">
+        <th data-key="verdict_rank" data-num="1">Verdict</th>
+        <th data-key="ticker">Ticker</th>
+        <th data-key="name">Name</th>
+        <th data-key="sector">Sector</th>
+        <th data-key="combined_score" data-num="1" style="text-align: right;">Score</th>
+        <th data-key="last_close" data-num="1" style="text-align: right;">LTP</th>
+        <th data-key="upside_pct" data-num="1" style="text-align: right;">Upside %</th>
+        <th data-key="downside_pct" data-num="1" style="text-align: right;">Stop %</th>
+        <th data-key="rsi_14" data-num="1" style="text-align: right;">RSI</th>
+        <th data-key="trailing_pe" data-num="1" style="text-align: right;">PE</th>
+        <th data-key="roe" data-num="1" style="text-align: right;">ROE</th>
+        <th data-key="tg_mentions" data-num="1" style="text-align: right;">📨</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for r in rows %}
+      <tr data-verdict="{{ r.verdict }}" data-sector="{{ r.sector }}" data-ticker="{{ r.ticker }}" data-name="{{ r.name|lower }}"
+          data-positive="{% if r.combined_score > 0 %}1{% else %}0{% endif %}"
+          onclick="window.location='/stock/{{ r.ticker }}'" style="cursor: pointer;">
+        <td><span class="verdict {{ r.verdict }}">{{ r.verdict }}</span></td>
+        <td><strong>{{ r.ticker }}</strong></td>
+        <td>{{ r.name[:35] }}</td>
+        <td style="color: var(--muted);">{{ r.sector }}</td>
+        <td style="text-align: right;" data-val="{{ r.combined_score }}">
+          <span class="{% if r.combined_score > 0 %}pos{% elif r.combined_score < 0 %}neg{% else %}neutral{% endif %}">
+            {{ '{:+.2f}'.format(r.combined_score) }}
+          </span>
+        </td>
+        <td style="text-align: right;" data-val="{{ r.last_close }}">{% if r.currency == 'INR' %}₹{% endif %}{{ '{:,.2f}'.format(r.last_close) }}</td>
+        <td style="text-align: right;" data-val="{{ r.upside_pct or 0 }}">
+          {% if r.upside_pct is not none %}<span class="pos">{{ '{:+.1f}'.format(r.upside_pct) }}%</span>{% else %}<span class="neutral">—</span>{% endif %}
+        </td>
+        <td style="text-align: right;" data-val="{{ r.downside_pct }}"><span class="neg">{{ '{:+.1f}'.format(r.downside_pct) }}%</span></td>
+        <td style="text-align: right;" data-val="{{ r.rsi_14 }}">
+          <span class="{% if r.rsi_14 > 70 %}neg{% elif r.rsi_14 < 30 %}pos{% else %}neutral{% endif %}">{{ '{:.0f}'.format(r.rsi_14) }}</span>
+        </td>
+        <td style="text-align: right;" data-val="{{ r.trailing_pe or 0 }}">{% if r.trailing_pe %}{{ '{:.1f}'.format(r.trailing_pe) }}{% else %}—{% endif %}</td>
+        <td style="text-align: right;" data-val="{{ r.roe or 0 }}">{% if r.roe is not none %}{{ '{:.1f}'.format(r.roe * 100) }}%{% else %}—{% endif %}</td>
+        <td style="text-align: right;" data-val="{{ r.tg_mentions }}">{% if r.tg_mentions > 0 %}{{ r.tg_mentions }}{% else %}<span class="neutral">—</span>{% endif %}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% if not rows %}
+  <div style="padding: 40px; text-align: center; color: var(--muted);">
+    No cached results yet. Click <strong>Refresh</strong> above to analyze the universe.
+  </div>
+  {% endif %}
+</div>
+
+<style>
+  #dashboard-table th { padding: 10px 12px; text-align: left; cursor: pointer; user-select: none; color: var(--muted); font-weight: 500; border-bottom: 1px solid var(--border); }
+  #dashboard-table th:hover { color: var(--text); }
+  #dashboard-table th.sorted-asc::after { content: ' ▲'; color: var(--accent); }
+  #dashboard-table th.sorted-desc::after { content: ' ▼'; color: var(--accent); }
+  #dashboard-table td { padding: 8px 12px; border-bottom: 1px solid var(--border); }
+  #dashboard-table tbody tr:hover { background: var(--panel-soft); }
+</style>
+
+<script>
+const verdictRank = { 'BUY': 5, 'ACCUMULATE': 4, 'HOLD': 3, 'REDUCE': 2, 'AVOID': 1 };
+
+function applyFilters() {
+  const q = document.getElementById('search').value.toLowerCase().trim();
+  const v = document.getElementById('verdict-filter').value;
+  const s = document.getElementById('sector-filter').value;
+  const pos = document.getElementById('positive-only').checked;
+  let shown = 0;
+  document.querySelectorAll('#dashboard-table tbody tr').forEach(tr => {
+    const ticker = tr.dataset.ticker.toLowerCase();
+    const name = tr.dataset.name;
+    const matches = (!q || ticker.includes(q) || name.includes(q))
+      && (!v || tr.dataset.verdict === v)
+      && (!s || tr.dataset.sector === s)
+      && (!pos || tr.dataset.positive === '1');
+    tr.style.display = matches ? '' : 'none';
+    if (matches) shown++;
+  });
+  document.getElementById('row-count').textContent = shown + ' shown';
+}
+
+function filterVerdict(v) {
+  document.getElementById('verdict-filter').value = v;
+  applyFilters();
+}
+
+document.querySelectorAll('#dashboard-table th').forEach(th => {
+  th.addEventListener('click', () => {
+    const key = th.dataset.key;
+    if (!key) return;
+    const isNum = th.dataset.num === '1';
+    const tbody = document.querySelector('#dashboard-table tbody');
+    const rows = Array.from(tbody.querySelectorAll('tr'));
+    const desc = !th.classList.contains('sorted-desc');
+    document.querySelectorAll('#dashboard-table th').forEach(h => h.classList.remove('sorted-asc', 'sorted-desc'));
+    th.classList.add(desc ? 'sorted-desc' : 'sorted-asc');
+    rows.sort((a, b) => {
+      let av, bv;
+      const aIdx = Array.from(th.parentElement.children).indexOf(th);
+      if (key === 'verdict_rank') {
+        av = verdictRank[a.dataset.verdict] || 0; bv = verdictRank[b.dataset.verdict] || 0;
+      } else if (key === 'ticker') { av = a.dataset.ticker; bv = b.dataset.ticker; }
+      else if (key === 'name') { av = a.dataset.name; bv = b.dataset.name; }
+      else if (key === 'sector') { av = a.dataset.sector; bv = b.dataset.sector; }
+      else {
+        av = parseFloat(a.children[aIdx].dataset.val); bv = parseFloat(b.children[aIdx].dataset.val);
+        if (isNaN(av)) av = 0; if (isNaN(bv)) bv = 0;
+      }
+      if (av < bv) return desc ? 1 : -1;
+      if (av > bv) return desc ? -1 : 1;
+      return 0;
+    });
+    rows.forEach(r => tbody.appendChild(r));
+  });
+});
+
+function refresh() {
+  fetch('/api/refresh?universe={{ universe_name }}', { method: 'POST' })
+    .then(r => r.json()).then(d => {
+      if (d.started) pollStatus();
+      else alert(d.reason || 'Could not start refresh');
+    });
+}
+function pollStatus() {
+  fetch('/api/status').then(r => r.json()).then(s => {
+    if (s.running) {
+      document.querySelector('.sub').innerHTML =
+        '{{ cached_count }} of {{ universe_total }} cached · <span style="color: var(--yellow);">refreshing ' + s.done + '/' + s.total + ' (' + (s.current || '—') + ')</span>';
+      setTimeout(pollStatus, 1500);
+    } else {
+      window.location.reload();
+    }
+  });
+}
+{% if status.running %}pollStatus();{% endif %}
+applyFilters();
+
+// Default sort by verdict rank descending (BUYs at top)
+document.querySelector('#dashboard-table th[data-key="verdict_rank"]').click();
+</script>
+{% endblock %}

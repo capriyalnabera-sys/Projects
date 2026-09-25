@@ -1,0 +1,8 @@
+This tool is a personal research and decision-support utility.
+
+It is NOT investment advice. Output may be wrong, stale, or based on
+incomplete data. The author is not a SEBI-registered investment adviser
+or research analyst. Markets are risky. You alone are responsible for
+any trades you place.
+
+Do your own due diligence. Never trade based on a single signal.

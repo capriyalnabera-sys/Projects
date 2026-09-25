@@ -1,0 +1,114 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="topbar">
+  <form action="/analyze" method="get">
+    <div class="form-row">
+      <input type="text" name="tickers" value="{{ tickers_str }}">
+      <label><input type="checkbox" name="telegram" value="1" {% if use_tg %}checked{% endif %}> Telegram</label>
+      <input type="number" name="days" value="{{ days }}" min="1" max="60" style="width: 60px;">
+      <button type="submit">Re-analyze</button>
+    </div>
+  </form>
+</div>
+
+{% if errors %}
+<div class="errors">
+  {% for k, v in errors %}<div><b>{{ k }}</b>: {{ v }}</div>{% endfor %}
+</div>
+{% endif %}
+
+{% macro money(v, cur='INR') %}
+  {%- if v is none -%}—{%- else -%}{% if cur == 'INR' %}₹{% else %}{{ cur }} {% endif %}{{ '{:,.2f}'.format(v) }}{%- endif -%}
+{% endmacro %}
+
+{% macro pct(v) %}
+  {%- if v is none -%}—{%- else -%}{{ '{:+.2f}'.format(v) }}%{%- endif -%}
+{% endmacro %}
+
+{% macro pctclass(v) %}{% if v is none %}neutral{% elif v > 0 %}pos{% elif v < 0 %}neg{% else %}neutral{% endif %}{% endmacro %}
+
+{% for r in results %}
+<div class="card">
+  <div class="card-head">
+    <div>
+      <span class="verdict {{ r.rec.verdict }}">{{ r.rec.verdict }}</span>
+      <strong style="margin-left: 8px;">{{ r.name }}</strong>
+      <span class="pill">{{ r.yf_symbol }}</span>
+      <span class="pill">{{ r.sector }}</span>
+    </div>
+    <div class="scores">
+      <span class="s">Combined <b>{{ '{:+.2f}'.format(r.rec.combined_score) }}</b></span>
+      <span class="s">T <b>{{ '{:+.2f}'.format(r.rec.technical_score) }}</b></span>
+      <span class="s">F <b>{{ '{:+.2f}'.format(r.rec.fundamental_score) }}</b></span>
+      <span class="s">G <b>{{ '{:+.2f}'.format(r.rec.telegram_score) }}</b></span>
+    </div>
+  </div>
+
+  <div class="grid">
+    <div><span>Last close</span> {{ money(r.last_close, r.currency) }}</div>
+    {% if r.rec.trade_target is not none %}
+      <div><span>Trade target</span> {{ money(r.rec.trade_target, r.currency) }}
+        <span class="{{ pctclass(r.rec.upside_pct) }}">{{ pct(r.rec.upside_pct) }}</span></div>
+    {% endif %}
+    {% if r.rec.target_bull is not none %}
+      <div><span>Bull target</span> {{ money(r.rec.target_bull, r.currency) }}</div>
+    {% endif %}
+    {% if r.rec.fair_value is not none %}
+      {% set gap = (r.rec.fair_value / r.last_close - 1) * 100 %}
+      <div><span>Fair value (info)</span> {{ money(r.rec.fair_value, r.currency) }}
+        <span class="{{ pctclass(gap) }}">{{ pct(gap) }}</span></div>
+    {% endif %}
+    <div><span>Stop loss</span> {{ money(r.rec.stop_loss, r.currency) }}
+      <span class="{{ pctclass(r.rec.downside_pct) }}">{{ pct(r.rec.downside_pct) }}</span></div>
+    <div><span>Horizon</span> {{ r.rec.horizon }}</div>
+  </div>
+
+  {% if r.rec.entry_note %}
+  <div class="alert">⚠ {{ r.rec.entry_note }}</div>
+  {% endif %}
+
+  <div class="grid" style="margin-top: 16px; font-size: 13px;">
+    <div><span>RSI(14)</span> {{ '{:.1f}'.format(r.tech.rsi_14) }}</div>
+    <div><span>50/200 SMA</span>
+      {{ '{:,.2f}'.format(r.tech.sma_50) }} /
+      {% if r.tech.sma_200 %}{{ '{:,.2f}'.format(r.tech.sma_200) }}{% else %}—{% endif %}
+    </div>
+    <div><span>52w high / low</span>
+      {{ '{:,.2f}'.format(r.tech.high_52w) }} ({{ '{:+.1f}'.format(r.tech.pct_from_52w_high) }}%) /
+      {{ '{:,.2f}'.format(r.tech.low_52w) }} ({{ '{:+.1f}'.format(r.tech.pct_from_52w_low) }}%)
+    </div>
+    <div><span>ATR(14)</span> {{ '{:,.2f}'.format(r.tech.atr_14) }}</div>
+    <div><span>Volume vs 20d</span> {{ '{:.2f}'.format(r.tech.volume_ratio) }}x</div>
+    <div><span>Trailing / Forward PE</span>
+      {% if r.fund.trailing_pe %}{{ '{:.2f}'.format(r.fund.trailing_pe) }}{% else %}—{% endif %} /
+      {% if r.fund.forward_pe %}{{ '{:.2f}'.format(r.fund.forward_pe) }}{% else %}—{% endif %}
+    </div>
+    <div><span>ROE</span>
+      {% if r.fund.roe is not none %}{{ '{:.1f}'.format(r.fund.roe * 100) }}%{% else %}—{% endif %}
+    </div>
+    <div><span>Debt / Equity</span>
+      {% if r.fund.debt_to_equity is not none %}{{ '{:.2f}'.format(r.fund.debt_to_equity) }}{% else %}—{% endif %}
+    </div>
+    <div><span>Earnings growth</span>
+      {% if r.fund.earnings_growth is not none %}{{ '{:.1f}'.format(r.fund.earnings_growth * 100) }}%{% else %}—{% endif %}
+    </div>
+    <div><span>Revenue growth</span>
+      {% if r.fund.revenue_growth is not none %}{{ '{:.1f}'.format(r.fund.revenue_growth * 100) }}%{% else %}—{% endif %}
+    </div>
+    <div><span>Fair PE used</span> {{ '{:.1f}'.format(r.fund.fair_pe_target) }}</div>
+  </div>
+
+  {% if r.rec.rationale %}
+  <div class="rationale">
+    <ul>
+      {% for note in r.rec.rationale %}<li>{{ note }}</li>{% endfor %}
+    </ul>
+  </div>
+  {% endif %}
+</div>
+{% endfor %}
+
+{% if not results %}
+<div class="card"><em>No results — try different tickers or check the form.</em></div>
+{% endif %}
+{% endblock %}

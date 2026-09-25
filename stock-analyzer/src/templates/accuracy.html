@@ -1,0 +1,317 @@
+{% extends "base.html" %}
+{% block content %}
+
+<div class="topbar">
+  <div>
+    <h2 style="margin: 0;">How accurate is this tool?</h2>
+    <div class="sub" style="margin: 4px 0 0;">
+      Replays past verdicts against actual prices to measure if the calls actually work.
+      {% if result.computed_at %}
+        · <span style="color: var(--muted-soft);">computed {{ result.computed_at[:16].replace('T',' ') }}
+          {% if result.get('computed_age_seconds') %}({{ (result.computed_age_seconds // 60) }} min ago){% endif %}
+        </span>
+      {% endif %}
+    </div>
+  </div>
+  <div>
+    <a href="/accuracy?force=1" class="btn secondary"><i data-lucide="refresh-cw"></i>Recompute</a>
+  </div>
+</div>
+
+{% if not result.available %}
+<div class="card" style="text-align: center; padding: 40px;">
+  <i data-lucide="hourglass" style="width: 32px; height: 32px; color: var(--muted);"></i>
+  <h2 style="color: var(--muted); margin-top: 12px;">{{ result.reason }}</h2>
+  <p style="color: var(--muted);">
+    Each batch refresh saves a verdict snapshot. Earliest meaningful read shows up after 5 trading days; confident calibration after 30+ snapshots.
+  </p>
+</div>
+
+{% else %}
+
+<!-- ============ REBUILDING NOTICE (when SWR kicked off a background recompute) ============ -->
+{% if result.get('rebuilding') %}
+<div class="rebuilding-banner">
+  <i data-lucide="loader-2" style="width: 16px; height: 16px;" class="spin"></i>
+  <span>Recomputing accuracy in the background — refresh in ~1 min to see the fresh numbers. The view below is from <strong>{{ result.computed_at[:16].replace('T',' ') if result.computed_at else 'cache' }}</strong>.</span>
+</div>
+<style>
+  .rebuilding-banner { display: flex; align-items: center; gap: 10px; padding: 8px 14px; border-radius: var(--radius-sm); background: var(--accent-soft); color: var(--accent); font-size: 12.5px; margin-bottom: 14px; }
+  @keyframes spin { from { transform: rotate(0); } to { transform: rotate(360deg); } }
+  .rebuilding-banner .spin { animation: spin 1s linear infinite; }
+</style>
+{% endif %}
+
+<!-- ============ PLAIN-ENGLISH TAKEAWAY ============ -->
+{% if takeaway %}
+<div class="takeaway-banner">
+  <i data-lucide="quote" style="width: 16px; height: 16px; flex-shrink: 0;"></i>
+  <span><strong>In short:</strong> {{ takeaway }}</span>
+</div>
+<style>
+  .takeaway-banner { display: flex; align-items: flex-start; gap: 10px; padding: 12px 16px; border-radius: var(--radius-sm); background: var(--panel); border: 1px solid var(--border); border-left: 3px solid var(--accent); font-size: 14px; line-height: 1.55; color: var(--text); margin-bottom: 12px; }
+</style>
+{% endif %}
+
+<!-- ============ PROGRESS BANNER ============ -->
+{% set p = result.progress %}
+<div class="progress-banner progress-{{ p.state }}">
+  <i data-lucide="{% if p.state == 'good' %}check-circle-2{% elif p.state == 'limited' %}alert-circle{% else %}hourglass{% endif %}" style="width: 18px; height: 18px;"></i>
+  <span>{{ p.message }}</span>
+</div>
+<style>
+  .progress-banner { display: flex; align-items: center; gap: 10px; padding: 10px 16px; border-radius: var(--radius-sm); margin-bottom: 18px; font-size: 13px; }
+  .progress-banner.progress-early   { background: var(--yellow-soft); color: var(--yellow); }
+  .progress-banner.progress-limited { background: var(--accent-soft); color: var(--accent); }
+  .progress-banner.progress-good    { background: var(--green-soft); color: var(--green); }
+</style>
+
+<!-- ============ HEADLINE SCORECARD ============ -->
+{% if result.headline %}
+{% set h = result.headline %}
+<div class="card scorecard">
+  <div class="score-grid">
+    <div>
+      <div class="score-label">When the tool said BUY or ACCUMULATE</div>
+      <div class="score-big {% if h.hit_rate_pct >= 55 %}pos{% elif h.hit_rate_pct < 45 %}neg{% else %}neutral{% endif %}">
+        {{ h.hit_rate_pct }}%
+      </div>
+      <div class="score-sub">went positive after {{ h.horizon_days }} trading days <span style="opacity: 0.7;">(n={{ h.n_positive_calls }})</span></div>
+    </div>
+    <div>
+      <div class="score-label">Average return on those calls</div>
+      <div class="score-big {% if h.avg_return_pct > 1 %}pos{% elif h.avg_return_pct < -1 %}neg{% else %}neutral{% endif %}">
+        {{ '{:+.2f}'.format(h.avg_return_pct) }}%
+      </div>
+      <div class="score-sub">over {{ h.horizon_days }} trading days</div>
+    </div>
+    {% if h.n_negative_calls > 0 %}
+    <div>
+      <div class="score-label">Stocks the tool said AVOID/REDUCE</div>
+      <div class="score-big {% if h.avg_return_negative_pct < -1 %}pos{% elif h.avg_return_negative_pct > 1 %}neg{% else %}neutral{% endif %}">
+        {{ '{:+.2f}'.format(h.avg_return_negative_pct) }}%
+      </div>
+      <div class="score-sub">avg return — negative is GOOD (you avoided losses) <span style="opacity: 0.7;">(n={{ h.n_negative_calls }})</span></div>
+    </div>
+    {% endif %}
+  </div>
+</div>
+<style>
+  .scorecard { padding: 24px 28px; }
+  .score-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 24px; }
+  .score-label { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600; }
+  .score-big { font-size: 40px; font-weight: 700; line-height: 1.1; margin-top: 8px; letter-spacing: -0.02em; }
+  .score-big.pos { color: var(--green); } .score-big.neg { color: var(--red); } .score-big.neutral { color: var(--muted); }
+  .score-sub { font-size: 12px; color: var(--muted); margin-top: 6px; }
+</style>
+{% endif %}
+
+<!-- ============ WHAT THE TOOL HAS LEARNED ============ -->
+{% if calibration and calibration.available %}
+<div class="card learning-card">
+  <h3 style="margin: 0 0 10px; display: flex; align-items: center; gap: 8px;">
+    <i data-lucide="brain"></i>What the tool has learned
+    {% if calibration.apply_buy_floor %}
+      <span class="lcard-badge applied">Applied to verdicts</span>
+    {% elif calibration.get('no_discrimination') %}
+      <span class="lcard-badge nosignal" title="Every score band was profitable at this horizon, so there is no floor to learn — nothing is being filtered.">No usable signal yet</span>
+    {% else %}
+      <span class="lcard-badge provisional">Provisional · {{ calibration.n_snapshots }} / 30 snapshots</span>
+    {% endif %}
+  </h3>
+  <ul class="learning-list">
+    {% for lesson in calibration.lessons %}
+      <li>{{ lesson }}</li>
+    {% endfor %}
+  </ul>
+
+  {% if calibration.score_bands %}
+  <div class="learning-bands">
+    <div class="learning-band-h">Score band hit rates at {{ calibration.target_horizon_days }}d horizon:</div>
+    <div class="band-grid">
+      {% for b in calibration.score_bands %}
+        {% set g = b.verdict_guidance %}
+        <div class="band-cell band-{{ g.split(' ')[0] | replace('-grade', '') | replace('insufficient', 'insufficient') | replace('neutral', 'neutral') | replace('accumulate', 'accumulate') }}">
+          <div class="band-label">{{ b.band }}</div>
+          <div class="band-stats">
+            {% if b.n and b.n >= 5 %}
+              {{ '{:+.1f}'.format(b.avg_return) }}% · {{ b.hit_rate }}% hit · n={{ b.n }}
+            {% else %}
+              n={{ b.n }} · too few
+            {% endif %}
+          </div>
+          <div class="band-guidance">{{ g }}</div>
+        </div>
+      {% endfor %}
+    </div>
+  </div>
+  {% endif %}
+
+  {% if calibration.sectors %}
+  <div class="learning-bands" style="margin-top: 14px;">
+    <div class="learning-band-h">Sector track record (BUY+ACCUMULATE verdicts at {{ calibration.target_horizon_days }}d):</div>
+    <div class="band-grid">
+      {% for sec, v in calibration.sectors.items() %}
+        <div class="band-cell band-{{ v.confidence }}-conf">
+          <div class="band-label">{{ sec }}</div>
+          <div class="band-stats">{{ '{:+.1f}'.format(v.avg_return) }}% · {{ v.hit_rate }}% hit · n={{ v.n }}</div>
+          <div class="band-guidance">{{ v.confidence }} confidence</div>
+        </div>
+      {% endfor %}
+    </div>
+  </div>
+  {% endif %}
+</div>
+<style>
+  .learning-card { background: linear-gradient(180deg, var(--panel) 0%, var(--panel-soft) 100%); }
+  .lcard-badge { font-size: 11px; padding: 2px 8px; border-radius: 10px; font-weight: 600; margin-left: 6px; }
+  .lcard-badge.applied     { background: var(--green-soft); color: var(--green); }
+  .lcard-badge.provisional { background: var(--yellow-soft); color: var(--yellow); }
+  .lcard-badge.nosignal    { background: var(--panel-soft); color: var(--muted); border: 1px solid var(--border); cursor: help; }
+  .learning-list { margin: 6px 0 14px; padding-left: 20px; color: var(--text-soft); font-size: 13px; line-height: 1.6; }
+  .learning-list li { margin-bottom: 4px; }
+  .learning-band-h { font-size: 11px; text-transform: uppercase; letter-spacing: 0.4px; color: var(--muted); font-weight: 600; margin-bottom: 8px; }
+  .band-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 8px; }
+  .band-cell { padding: 8px 10px; border: 1px solid var(--border-soft); border-radius: 4px; background: var(--panel); }
+  .band-cell .band-label { font-size: 13px; font-weight: 700; color: var(--text); }
+  .band-cell .band-stats { font-size: 11px; color: var(--text-soft); margin: 2px 0; }
+  .band-cell .band-guidance { font-size: 10px; text-transform: uppercase; letter-spacing: 0.4px; font-weight: 600; }
+  .band-cell.band-buy            { border-left: 3px solid var(--green); } .band-cell.band-buy .band-guidance       { color: var(--green); }
+  .band-cell.band-accumulate     { border-left: 3px solid var(--accent); } .band-cell.band-accumulate .band-guidance { color: var(--accent); }
+  .band-cell.band-avoid          { border-left: 3px solid var(--red); } .band-cell.band-avoid .band-guidance      { color: var(--red); }
+  .band-cell.band-neutral        { border-left: 3px solid var(--muted-soft); } .band-cell.band-neutral .band-guidance { color: var(--muted); }
+  .band-cell.band-insufficient   { border-left: 3px solid var(--border-soft); opacity: 0.6; } .band-cell.band-insufficient .band-guidance { color: var(--muted); }
+  .band-cell.band-high-conf      { border-left: 3px solid var(--green); }
+  .band-cell.band-moderate-conf  { border-left: 3px solid var(--accent); }
+  .band-cell.band-low-conf       { border-left: 3px solid var(--red); }
+</style>
+{% endif %}
+
+<!-- ============ ONE-ROW-PER-VERDICT SUMMARY ============ -->
+<div class="card">
+  <h2 style="margin: 0 0 14px; display: flex; align-items: center; gap: 6px;">
+    <i data-lucide="bar-chart-3"></i>What happens after each verdict?
+    {% if ordering %}
+      {% if ordering.ok %}
+        <span class="order-chip ok" title="At the {{ ordering.horizon }}d horizon, avg returns descend BUY → AVOID as they should."><i data-lucide="check" style="width: 11px; height: 11px;"></i>ordering healthy</span>
+      {% else %}
+        <span class="order-chip warn" title="Inverted pairs at {{ ordering.horizon }}d: {{ ordering.inversions | join(' · ') }}"><i data-lucide="alert-triangle" style="width: 11px; height: 11px;"></i>{{ ordering.inversions | length }} inversion{{ 's' if ordering.inversions|length != 1 }}</span>
+      {% endif %}
+    {% endif %}
+  </h2>
+  <div class="table-scroll">
+  <table class="simple-table">
+    <thead>
+      <tr>
+        <th>Tool said…</th>
+        {% for h in result.horizons_days %}
+        <th style="text-align:right;">after {{ h }}d</th>
+        {% endfor %}
+        <th style="text-align:right;">Hit rate</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for v in ['BUY','ACCUMULATE','HOLD','REDUCE','AVOID'] %}
+        {# Use the longest horizon's data for hit rate column #}
+        {% set last_h = result.horizons_days[-1] %}
+        {% set last_row = result.by_verdict[v][last_h|string] %}
+        <tr>
+          <td><span class="verdict {{ v }}">{{ v }}</span></td>
+          {% for h in result.horizons_days %}
+            {% set row = result.by_verdict[v][h|string] %}
+            <td style="text-align:right;">
+              {% if row %}
+                <span class="{% if row.avg_return > 0 %}pos{% elif row.avg_return < 0 %}neg{% endif %}" style="font-weight: 600;">
+                  {{ '{:+.2f}'.format(row.avg_return) }}%
+                </span>
+                <span style="color: var(--muted-soft); font-size: 11px;">n={{ row.n }}</span>
+              {% else %}
+                <span class="neutral">—</span>
+              {% endif %}
+            </td>
+          {% endfor %}
+          <td style="text-align:right;">
+            {% if last_row %}
+              <strong class="{% if last_row.hit_rate >= 55 %}pos{% elif last_row.hit_rate < 45 %}neg{% endif %}">{{ last_row.hit_rate }}%</strong>
+            {% else %}
+              <span class="neutral">—</span>
+            {% endif %}
+          </td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  </div>
+  <div style="font-size: 12px; color: var(--muted); margin-top: 12px; line-height: 1.5;">
+    <strong>How to read:</strong> Each row shows the average % return of stocks the tool gave that verdict to, after 5/20/60 trading days.
+    Hit rate is % that closed positive at the longest horizon. <strong>A well-calibrated tool shows BUY &gt; ACCUMULATE &gt; HOLD &gt; REDUCE &gt; AVOID</strong> in avg return —
+    the chip next to the title tells you whether that currently holds.
+  </div>
+</div>
+
+<!-- ============ ADVANCED — COLLAPSED BY DEFAULT ============ -->
+{% if result.get('score_calibration') %}
+<details class="card">
+  <summary style="cursor: pointer; font-weight: 600; display: flex; align-items: center; gap: 6px;">
+    <i data-lucide="chevron-right" class="expand-arrow"></i><i data-lucide="line-chart"></i>Score calibration (advanced — does a higher score mean higher return?)
+  </summary>
+  <table class="simple-table" style="margin-top: 14px;">
+    <thead>
+      <tr>
+        <th>Score bucket</th>
+        {% for h in result.horizons_days %}<th style="text-align:right;">{{ h }}d avg</th><th style="text-align:right;">{{ h }}d hit %</th>{% endfor %}
+      </tr>
+    </thead>
+    <tbody>
+      {% for bin in ['≥+2','+1 to +2','0 to +1','-1 to 0','≤-1'] %}
+        <tr>
+          <td><strong>{{ bin }}</strong></td>
+          {% for h in result.horizons_days %}
+            {% set d = result.score_calibration[bin][h|string] %}
+            <td style="text-align:right;" class="{% if d and d.avg_return > 0 %}pos{% elif d and d.avg_return < 0 %}neg{% endif %}">
+              {% if d %}{{ '{:+.2f}'.format(d.avg_return) }}% <span style="color: var(--muted-soft); font-size: 11px;">(n={{ d.n }})</span>{% else %}<span class="neutral">—</span>{% endif %}
+            </td>
+            <td style="text-align:right;">{% if d %}{{ d.hit_rate }}%{% else %}<span class="neutral">—</span>{% endif %}</td>
+          {% endfor %}
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  <div style="font-size: 12px; color: var(--muted); margin-top: 8px;">
+    Higher score buckets <em>should</em> show monotonically higher avg return and hit rate. Inversions mean the scoring isn't discriminating well — a tuning signal.
+  </div>
+</details>
+
+<details class="card">
+  <summary style="cursor: pointer; font-weight: 600; display: flex; align-items: center; gap: 6px;">
+    <i data-lucide="chevron-right" class="expand-arrow"></i><i data-lucide="info"></i>Methodology &amp; sample sizes
+  </summary>
+  <div style="font-size: 13px; color: var(--text-soft); margin-top: 12px; line-height: 1.6;">
+    <p><strong>How this works:</strong> Every batch refresh writes a snapshot of the verdict for each stock. For each historical snapshot, we then look up the actual price 5, 20, and 60 trading days later, and compute realized returns. Those returns get bucketed by what the verdict was on the snapshot date.</p>
+    <ul style="padding-left: 20px;">
+      <li><strong>Snapshots collected:</strong> {{ result.snapshot_count }}
+        <span style="color: var(--muted);">({{ result.first_snapshot }} → {{ result.last_snapshot }})</span></li>
+      <li><strong>Unique tickers evaluated:</strong> {{ result.tickers_evaluated }}</li>
+      <li><strong>Horizons measured:</strong> {{ result.horizons_days | join(', ') }} trading days</li>
+      <li><strong>Big-win threshold:</strong> +{{ result.big_win_threshold_pct }}% (used in advanced table)</li>
+    </ul>
+    <p style="margin-top: 10px;"><strong>Reading the n=… values:</strong> these are sample sizes. n=5 means just 5 data points — wide uncertainty. n=100+ starts to be statistically meaningful. Sparse cells with — are insufficient data, not failed calls.</p>
+  </div>
+</details>
+{% endif %}
+
+<style>
+  .simple-table { width: 100%; border-collapse: collapse; font-size: 13px; font-variant-numeric: tabular-nums; }
+  .simple-table th { padding: 10px 12px; text-align: left; color: var(--muted); font-weight: 500; border-bottom: 1px solid var(--border); font-size: 11px; text-transform: uppercase; letter-spacing: 0.4px; }
+  .simple-table td { padding: 12px; border-bottom: 1px solid var(--border-soft); }
+  details[open] .expand-arrow { transform: rotate(90deg); }
+  .expand-arrow { transition: transform 0.15s; }
+  /* Tables stay usable on phones — scroll sideways instead of crushing columns */
+  .table-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  .order-chip { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; padding: 2px 8px; border-radius: 10px; font-weight: 600; margin-left: 8px; cursor: help; }
+  .order-chip.ok   { background: var(--green-soft); color: var(--green); }
+  .order-chip.warn { background: var(--yellow-soft); color: var(--yellow); }
+</style>
+
+{% endif %}
+{% endblock %}

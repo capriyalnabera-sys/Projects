@@ -1,0 +1,77 @@
+{% extends "base.html" %}
+{% block content %}
+
+<div class="grid" style="grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; margin-bottom: 24px;">
+  {% for u in universes %}
+  <a href="/dashboard?universe={{ u.name }}" style="text-decoration: none;">
+    <div class="card" style="margin: 0; cursor: pointer;">
+      <div style="color: var(--muted); text-transform: uppercase; font-size: 11px; letter-spacing: 1px;">{{ u.name }}</div>
+      <div style="font-size: 22px; font-weight: 600; margin-top: 4px;">{{ u.cached }}<span style="color: var(--muted); font-size: 14px; font-weight: 400;"> / {{ u.total }} cached</span></div>
+      <div style="color: var(--muted); font-size: 12px; margin-top: 4px;">Open dashboard →</div>
+    </div>
+  </a>
+  {% endfor %}
+</div>
+
+<div class="card" style="margin-bottom: 18px;">
+  <h2 style="margin: 0 0 12px;">Refresh universe</h2>
+  <div class="form-row">
+    <button onclick="refresh('nifty50')">Refresh NIFTY 50</button>
+    <button onclick="refresh('nifty100')">Refresh NIFTY 100</button>
+    <button onclick="refresh('nifty500')">Refresh NIFTY 500</button>
+    <span id="refresh-status" style="color: var(--muted); font-size: 13px; margin-left: 12px;">
+      {% if status.running %}
+        Running: {{ status.done }}/{{ status.total }} (current: {{ status.current or '—' }})
+      {% elif status.finished_at %}
+        Last run: {{ status.done }}/{{ status.total }} done, {{ status.errors }} errors, {{ status.elapsed_sec }}s
+      {% else %}
+        Idle
+      {% endif %}
+    </span>
+  </div>
+  <div style="font-size: 12px; color: var(--muted);">
+    NIFTY 50 ≈ 2 min · NIFTY 100 ≈ 4 min · NIFTY 500 ≈ 15-20 min (first run; subsequent runs much faster with cache)
+  </div>
+</div>
+
+<div class="card">
+  <h2 style="margin: 0 0 12px;">Ad-hoc analysis</h2>
+  <form action="/analyze" method="get">
+    <div class="form-row">
+      <input type="text" name="tickers" value="{{ tickers }}" placeholder="NSE tickers, e.g. RELIANCE TCS HFCL">
+    </div>
+    <div class="form-row">
+      <label><input type="checkbox" name="telegram" value="1" {% if telegram %}checked{% endif %}> Include Telegram research-group signals</label>
+      <label>Days <input type="number" name="days" value="7" min="1" max="60" style="width: 60px;"></label>
+      <button type="submit">Analyze</button>
+    </div>
+    <div class="examples">
+      Quick:
+      <a href="/analyze?tickers=BORORENEW+HFCL+UGROCAP&telegram=0">BORORENEW HFCL UGROCAP</a>
+      <a href="/analyze?tickers=RELIANCE+TCS+HDFCBANK&telegram=0">RELIANCE TCS HDFCBANK</a>
+    </div>
+  </form>
+</div>
+
+<script>
+function refresh(universe) {
+  fetch('/api/refresh?universe=' + universe, { method: 'POST' })
+    .then(r => r.json()).then(d => {
+      if (d.started) pollStatus();
+      else alert(d.reason || 'Could not start refresh');
+    });
+}
+function pollStatus() {
+  fetch('/api/status').then(r => r.json()).then(s => {
+    const el = document.getElementById('refresh-status');
+    if (s.running) {
+      el.textContent = 'Running: ' + s.done + '/' + s.total + ' (current: ' + (s.current || '—') + ')';
+      setTimeout(pollStatus, 1500);
+    } else if (s.finished_at) {
+      el.textContent = 'Done: ' + s.done + '/' + s.total + ' (' + s.errors + ' errors, ' + s.elapsed_sec + 's). Refresh page.';
+    }
+  });
+}
+{% if status.running %}pollStatus();{% endif %}
+</script>
+{% endblock %}

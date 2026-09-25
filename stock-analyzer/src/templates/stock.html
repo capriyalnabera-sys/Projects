@@ -1,0 +1,920 @@
+{% extends "base.html" %}
+{% block content %}
+
+{% if not r %}
+<div class="card"><em>No data for this ticker. {% if errors %}{{ errors[0][1] }}{% endif %}</em></div>
+<a href="/" style="color: var(--muted); margin-top: 12px; display: inline-block;">← Home</a>
+{% else %}
+
+<div class="stock-hero verdict-{{ r.verdict }}">
+  <div>
+    <h2 style="margin: 0; font-size: 24px; letter-spacing: -0.02em;">
+      {{ r.name }}
+    </h2>
+    <div style="margin-top: 8px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
+      <span class="pill" style="font-weight: 600;">{{ r.yf_symbol }}</span>
+      <span style="color: var(--muted); font-size: 13px;">{{ r.sector }}{% if r.industry %} · {{ r.industry }}{% endif %}</span>
+      <span style="color: var(--muted-soft); font-size: 12px;">{% if live %}<i data-lucide="zap" style="width: 12px; height: 12px;"></i> live{% else %}<i data-lucide="database" style="width: 12px; height: 12px;"></i> cached {{ r.as_of[:10] }}{% endif %}</span>
+    </div>
+  </div>
+  <div style="text-align: right;">
+    <div style="font-size: 32px; font-weight: 700; line-height: 1; letter-spacing: -0.02em;">{{ r.last_close | inr_full }}</div>
+    <div style="margin-top: 10px; display: flex; align-items: center; gap: 8px; justify-content: flex-end;">
+      <span class="verdict {{ r.verdict }}">{{ r.verdict }}</span>
+      <span style="color: var(--muted); font-size: 12px;">score <strong>{{ '{:+.2f}'.format(r.combined_score) }}</strong></span>
+      {% if r.get('calibration_applied') %}
+        <span class="calib-chip applied" title="Verdict was demoted by the learned BUY floor — past calls at this score didn't pay off."><i data-lucide="brain" style="width: 11px; height: 11px;"></i>calibrated</span>
+      {% endif %}
+    </div>
+    {% if r.get('track_record') or r.get('sector_track_record') %}
+    <div class="track-row">
+      {% set tr = r.get('track_record') %}
+      {% if tr %}
+        <span class="track-chip" title="How past verdicts in this score band performed at the {{ tr.horizon_days }}-day horizon">
+          <i data-lucide="trending-up" style="width: 11px; height: 11px;"></i>
+          Tool track record: <strong>{{ tr.hit_rate }}% hit</strong> · {{ '{:+.1f}'.format(tr.avg_return) }}% avg
+          <span class="track-sub">at this score band ({{ tr.band }}, n={{ tr.n }})</span>
+        </span>
+      {% endif %}
+      {% set sr = r.get('sector_track_record') %}
+      {% if sr %}
+        <span class="track-chip sector-{{ sr.confidence }}" title="{{ sr.note }}">
+          <i data-lucide="layers" style="width: 11px; height: 11px;"></i>
+          {{ r.sector or 'Sector' }}: <strong>{{ sr.hit_rate }}% hit</strong> · {{ sr.confidence }} confidence
+        </span>
+      {% endif %}
+    </div>
+    {% endif %}
+  </div>
+</div>
+
+<style>
+  .stock-hero { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; margin-bottom: 20px; flex-wrap: wrap; padding: 20px 22px; background: var(--panel); border: 1px solid var(--border); border-left-width: 4px; border-radius: var(--radius); box-shadow: var(--shadow-sm); }
+  .stock-hero.verdict-BUY        { border-left-color: var(--green-bright); }
+  .stock-hero.verdict-ACCUMULATE { border-left-color: var(--green); }
+  .stock-hero.verdict-HOLD       { border-left-color: var(--yellow-bright); }
+  .stock-hero.verdict-REDUCE     { border-left-color: #fb923c; }
+  .stock-hero.verdict-AVOID      { border-left-color: var(--red-bright); }
+  .calib-chip { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; padding: 2px 8px; border-radius: 10px; font-weight: 600; background: var(--accent-soft); color: var(--accent); cursor: help; }
+  .calib-chip.applied { background: var(--yellow-soft); color: var(--yellow); }
+  .track-row { margin-top: 10px; display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap; }
+  .track-chip { display: inline-flex; align-items: center; gap: 5px; font-size: 11.5px; padding: 4px 10px; border-radius: 12px; background: var(--panel-soft); color: var(--text-soft); border: 1px solid var(--border-soft); }
+  .track-chip strong { color: var(--text); font-weight: 700; }
+  .track-chip .track-sub { color: var(--muted); font-size: 10.5px; margin-left: 4px; }
+  .track-chip.sector-high     { background: var(--green-soft); color: var(--green); border-color: transparent; }
+  .track-chip.sector-low      { background: var(--red-soft); color: var(--red); border-color: transparent; }
+  .track-chip.sector-moderate { background: var(--accent-soft); color: var(--accent); border-color: transparent; }
+</style>
+
+<!-- Journal removed per user request (2026-07) — trade logging lived here. -->
+
+
+<!-- Top ratios — screener.in style horizontal grid; hover any label for plain-English explanation -->
+<div class="ratios-strip">
+  <div class="ratio" title="Price-to-Earnings: how much you pay per ₹1 of last 12 months' earnings. Lower is generally cheaper (under 15 = bargain, over 40 = expensive)."><span class="lbl">Stock P/E <i data-lucide="help-circle" class="help-i"></i></span><span class="val">{% if r.trailing_pe %}{{ '{:.1f}'.format(r.trailing_pe) }}{% else %}—{% endif %}</span></div>
+  <div class="ratio" title="Forward P/E: same ratio but using next year's projected earnings. Helpful when the company is in earnings recovery — trailing PE looks expensive but forward PE is cheap."><span class="lbl">Forward P/E <i data-lucide="help-circle" class="help-i"></i></span><span class="val">{% if r.forward_pe %}{{ '{:.1f}'.format(r.forward_pe) }}{% else %}—{% endif %}</span></div>
+  <div class="ratio" title="Return on Equity: profit generated per ₹1 of shareholder capital. >15% = solid business, >20% = excellent, negative = loss-making."><span class="lbl">ROE <i data-lucide="help-circle" class="help-i"></i></span><span class="val {% if r.roe is not none %}{% if r.roe > 0.15 %}pos{% elif r.roe < 0 %}neg{% endif %}{% endif %}">{% if r.roe is not none %}{{ '{:.1f}'.format(r.roe * 100) }}%{% else %}—{% endif %}</span></div>
+  <div class="ratio" title="Debt-to-Equity ratio. Below 0.3 = lightly leveraged, above 2 = highly leveraged. Note: ignored for banks/NBFCs/utilities since leverage is structural for them."><span class="lbl">Debt/Equity <i data-lucide="help-circle" class="help-i"></i></span><span class="val">{% if r.debt_to_equity is not none %}{{ '{:.2f}'.format(r.debt_to_equity) }}{% else %}—{% endif %}</span></div>
+  <div class="ratio" title="Earnings growth year-over-year. Positive = growing profits, ideally double-digit. Note: ignored as a signal when ROE is negative (% growth from a loss is misleading)."><span class="lbl">EPS Growth <i data-lucide="help-circle" class="help-i"></i></span><span class="val {% if r.earnings_growth is not none %}{% if r.earnings_growth > 0.15 %}pos{% elif r.earnings_growth < 0 %}neg{% endif %}{% endif %}">{% if r.earnings_growth is not none %}{{ '{:+.1f}'.format(r.earnings_growth * 100) }}%{% else %}—{% endif %}</span></div>
+  <div class="ratio" title="Revenue growth year-over-year. Tells you if the business is expanding. >10% = healthy growth, declining revenue is a warning sign."><span class="lbl">Sales Growth <i data-lucide="help-circle" class="help-i"></i></span><span class="val {% if r.revenue_growth is not none %}{% if r.revenue_growth > 0.10 %}pos{% elif r.revenue_growth < 0 %}neg{% endif %}{% endif %}">{% if r.revenue_growth is not none %}{{ '{:+.1f}'.format(r.revenue_growth * 100) }}%{% else %}—{% endif %}</span></div>
+  <div class="ratio" title="Relative Strength Index (14-day): momentum gauge from 0–100. Below 30 = oversold (potential bounce). Above 70 = overbought (caution). 45–65 = healthy."><span class="lbl">RSI(14) <i data-lucide="help-circle" class="help-i"></i></span><span class="val {% if r.rsi_14 > 70 %}neg{% elif r.rsi_14 < 30 %}pos{% endif %}">{{ '{:.0f}'.format(r.rsi_14) }}</span></div>
+  <div class="ratio" title="Highest and lowest price the stock has traded at in the past 52 weeks. Within 5% of the high = breakout watch (no margin of safety). Within 5% of the low = oversold or troubled."><span class="lbl">52w high/low <i data-lucide="help-circle" class="help-i"></i></span><span class="val">{{ '{:.0f}'.format(r.high_52w) }}/{{ '{:.0f}'.format(r.low_52w) }}</span></div>
+</div>
+<style>
+  .help-i { width: 11px !important; height: 11px !important; opacity: 0.5; vertical-align: 0; margin-left: 2px; }
+</style>
+
+<!-- Pros and Cons side-by-side, screener.in style -->
+<div class="proscons">
+  <div class="proscons-box pros">
+    <div class="proscons-title"><i data-lucide="check-circle-2"></i> PROS</div>
+    {% if pros %}
+      <ul>{% for p in pros %}<li>{{ p }}</li>{% endfor %}</ul>
+    {% else %}
+      <div style="color: var(--muted); font-size: 13px; padding: 8px 0;">No positive signals detected.</div>
+    {% endif %}
+  </div>
+  <div class="proscons-box cons">
+    <div class="proscons-title"><i data-lucide="x-circle"></i> CONS</div>
+    {% if cons %}
+      <ul>{% for c in cons %}<li>{{ c }}</li>{% endfor %}</ul>
+    {% else %}
+      <div style="color: var(--muted); font-size: 13px; padding: 8px 0;">No major red flags detected.</div>
+    {% endif %}
+  </div>
+</div>
+
+{% if r.get('plain_summary') %}
+<div class="card plain-summary">
+  <h2 style="margin: 0 0 10px; display: flex; align-items: center; gap: 6px;"><i data-lucide="message-circle"></i>In plain English</h2>
+  <div style="font-size: 14px; line-height: 1.65; color: var(--text-soft);">{{ r.plain_summary }}</div>
+</div>
+<style>
+  .plain-summary { border-left: 3px solid var(--accent); }
+</style>
+{% endif %}
+
+<!-- Recommendation card -->
+<div class="card">
+  <h2 style="margin: 0 0 12px; display: flex; align-items: center; gap: 6px;"><i data-lucide="target"></i>Recommendation</h2>
+  <div class="grid">
+    {% if r.trade_target is not none %}
+      <div><span>Trade target</span> ₹{{ '{:,.2f}'.format(r.trade_target) }} <span class="pos">{{ '{:+.1f}'.format(r.upside_pct) }}%</span></div>
+    {% endif %}
+    {% if r.target_bull is not none %}
+      <div><span>Bull target</span> ₹{{ '{:,.2f}'.format(r.target_bull) }}</div>
+    {% endif %}
+    {% if r.fair_value is not none %}
+      {% set gap = (r.fair_value / r.last_close - 1) * 100 %}
+      <div><span>Fair value</span> ₹{{ '{:,.2f}'.format(r.fair_value) }} <span class="{% if gap > 0 %}pos{% elif gap < 0 %}neg{% endif %}">{{ '{:+.1f}'.format(gap) }}%</span></div>
+    {% endif %}
+    <div><span>Stop loss</span> ₹{{ '{:,.2f}'.format(r.stop_loss) }} <span class="neg">{{ '{:+.1f}'.format(r.downside_pct) }}%</span></div>
+    <div><span>Horizon</span> {{ r.horizon }}</div>
+  </div>
+  {% if r.entry_note %}
+    <div class="alert">⚠ {{ r.entry_note }}</div>
+  {% endif %}
+  <div class="scores" style="margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--border);">
+    <span class="s">Technical <b>{{ '{:+.2f}'.format(r.technical_score) }}</b></span>
+    <span class="s">Fundamental <b>{{ '{:+.2f}'.format(r.fundamental_score) }}</b></span>
+    <span class="s">Telegram <b>{{ '{:+.2f}'.format(r.telegram_score) }}</b>{% if r.tg_mentions %}<span style="color: var(--muted);"> ({{ r.tg_mentions }} mentions)</span>{% endif %}</span>
+  </div>
+</div>
+
+<!-- Detailed Fundamentals -->
+<div class="card">
+  <h2 style="margin: 0 0 14px; display: flex; align-items: center; gap: 6px;"><i data-lucide="building-2"></i>Detailed fundamentals</h2>
+
+  <div class="fund-grid">
+    <div class="fund-section">
+      <h3 class="fund-h">Profitability</h3>
+      <div class="fund-row" title="Return on Equity: profit per ₹1 of shareholder capital. >15% solid, >20% excellent.">
+        <span class="lbl">ROE</span>
+        <span class="val {% if r.roe is not none and r.roe >= 0.15 %}pos{% elif r.roe is not none and r.roe < 0 %}neg{% endif %}">
+          {% if r.roe is not none %}{{ '{:+.1f}'.format(r.roe * 100) }}%{% else %}—{% endif %}
+        </span>
+      </div>
+      <div class="fund-row" title="Return on Capital Employed: returns generated per ₹1 of total capital (equity+debt). Better than ROE for leveraged companies.">
+        <span class="lbl">ROCE</span>
+        <span class="val {% if r.get('roce') is not none and r.roce >= 0.15 %}pos{% elif r.get('roce') is not none and r.roce < 0 %}neg{% endif %}">
+          {% if r.get('roce') is not none %}{{ '{:+.1f}'.format(r.roce * 100) }}%{% else %}—{% endif %}
+        </span>
+      </div>
+      <div class="fund-row" title="Net profit margin: how much profit per ₹1 of sales. Higher = pricing power and operational efficiency.">
+        <span class="lbl">Profit margin</span>
+        <span class="val {% if r.get('profit_margin') is not none and r.profit_margin >= 0.10 %}pos{% elif r.get('profit_margin') is not none and r.profit_margin < 0 %}neg{% endif %}">
+          {% if r.get('profit_margin') is not none %}{{ '{:+.1f}'.format(r.profit_margin * 100) }}%{% else %}—{% endif %}
+        </span>
+      </div>
+    </div>
+
+    <div class="fund-section">
+      <h3 class="fund-h">Valuation</h3>
+      <div class="fund-row" title="Stock P/E (trailing 12 months). Lower = cheaper.">
+        <span class="lbl">Stock P/E</span>
+        <span class="val">{% if r.trailing_pe %}{{ '{:.1f}'.format(r.trailing_pe) }}{% else %}—{% endif %}</span>
+      </div>
+      <div class="fund-row" title="Forward P/E: based on next year's projected earnings. Useful when company is in earnings recovery.">
+        <span class="lbl">Forward P/E</span>
+        <span class="val">{% if r.forward_pe %}{{ '{:.1f}'.format(r.forward_pe) }}{% else %}—{% endif %}</span>
+      </div>
+      <div class="fund-row" title="Price-to-Book: market price as multiple of book value per share. <1 = trading below accounting value.">
+        <span class="lbl">Price/Book</span>
+        <span class="val">{% if r.get('price_to_book') %}{{ '{:.2f}'.format(r.price_to_book) }}{% else %}—{% endif %}</span>
+      </div>
+      <div class="fund-row" title="Book Value per share: shareholder equity divided by shares outstanding. The 'accounting value' of one share.">
+        <span class="lbl">Book value/share</span>
+        <span class="val">{% if r.get('book_value') %}₹{{ '{:,.2f}'.format(r.book_value) }}{% else %}—{% endif %}</span>
+      </div>
+      <div class="fund-row" title="Dividend yield: annual dividend / current price. Income return vs price return.">
+        <span class="lbl">Dividend yield</span>
+        <span class="val">{% if r.get('dividend_yield') is not none and r.dividend_yield > 0 %}{{ '{:.2f}'.format(r.dividend_yield * 100) }}%{% else %}—{% endif %}</span>
+      </div>
+      <div class="fund-row" title="Total market value of all outstanding shares. Indian Cr = ₹10 million; ₹1L Cr = ₹1 trillion.">
+        <span class="lbl">Market cap</span>
+        <span class="val">{% if r.get('market_cap_cr') %}₹{{ '{:,.0f}'.format(r.market_cap_cr) }} Cr{% else %}—{% endif %}</span>
+      </div>
+    </div>
+
+    <div class="fund-section">
+      <h3 class="fund-h">Capital structure</h3>
+      <div class="fund-row" title="Debt-to-Equity: ratio of borrowed money to shareholder capital. <0.3 lightly leveraged, >2 heavily.">
+        <span class="lbl">Debt / Equity</span>
+        <span class="val">{% if r.debt_to_equity is not none %}{{ '{:.2f}'.format(r.debt_to_equity) }}{% else %}—{% endif %}</span>
+      </div>
+      <div class="fund-row" title="Trailing twelve months earnings per share — actual reported.">
+        <span class="lbl">Trailing EPS</span>
+        <span class="val">{% if r.get('trailing_eps') is not none %}₹{{ '{:.2f}'.format(r.trailing_eps) }}{% else %}—{% endif %}</span>
+      </div>
+      <div class="fund-row" title="Analyst-projected next-year earnings per share.">
+        <span class="lbl">Forward EPS</span>
+        <span class="val">{% if r.get('forward_eps') is not none %}₹{{ '{:.2f}'.format(r.forward_eps) }}{% else %}—{% endif %}</span>
+      </div>
+    </div>
+  </div>
+
+  {% if r.get('sales_growth_history') or r.get('profit_growth_history') %}
+  <div style="margin-top: 18px;">
+    <h3 class="fund-h" title="How fast sales and profits have compounded over different time horizons. Look for consistency — TTM should not diverge wildly from 5-year if the business is stable.">Compounded growth (yoy CAGR by horizon)</h3>
+    <table class="growth-table">
+      <thead>
+        <tr><th></th><th>10 yr</th><th>5 yr</th><th>3 yr</th><th>TTM</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>Sales</strong></td>
+          {% set sg = r.get('sales_growth_history') or {} %}
+          {% for h in ['10y','5y','3y','ttm'] %}
+            {% set v = sg.get(h) %}
+            <td class="{% if v is not none and v > 0.10 %}pos{% elif v is not none and v < 0 %}neg{% endif %}">
+              {% if v is not none %}{{ '{:+.0f}'.format(v * 100) }}%{% else %}<span class="neutral">—</span>{% endif %}
+            </td>
+          {% endfor %}
+        </tr>
+        <tr>
+          <td><strong>Profit</strong></td>
+          {% set pg = r.get('profit_growth_history') or {} %}
+          {% for h in ['10y','5y','3y','ttm'] %}
+            {% set v = pg.get(h) %}
+            <td class="{% if v is not none and v > 0.10 %}pos{% elif v is not none and v < 0 %}neg{% endif %}">
+              {% if v is not none %}{{ '{:+.0f}'.format(v * 100) }}%{% else %}<span class="neutral">—</span>{% endif %}
+            </td>
+          {% endfor %}
+        </tr>
+      </tbody>
+    </table>
+    <div style="font-size: 11px; color: var(--muted); margin-top: 8px;">Source: screener.in. TTM diverging sharply from 5y/10y typically signals a recent inflection (good or bad).</div>
+  </div>
+  {% endif %}
+</div>
+
+<style>
+  .fund-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 24px; }
+  .fund-section { }
+  .fund-h { font-size: 11px; text-transform: uppercase; letter-spacing: 0.6px; color: var(--muted); font-weight: 600; margin: 0 0 10px; }
+  .fund-row { display: flex; justify-content: space-between; padding: 6px 0; border-bottom: 1px solid var(--border-soft); font-size: 13px; }
+  .fund-row:last-child { border-bottom: 0; }
+  .fund-row .lbl { color: var(--muted); }
+  .fund-row .val { font-weight: 500; color: var(--text); font-variant-numeric: tabular-nums; }
+  .growth-table { width: 100%; border-collapse: collapse; font-size: 13px; margin-top: 10px; }
+  .growth-table th { padding: 6px 8px; text-align: right; color: var(--muted); font-weight: 500; font-size: 11px; text-transform: uppercase; letter-spacing: 0.4px; border-bottom: 1px solid var(--border); }
+  .growth-table th:first-child { text-align: left; }
+  .growth-table td { padding: 8px; text-align: right; font-variant-numeric: tabular-nums; }
+  .growth-table td:first-child { text-align: left; }
+</style>
+
+<!-- Intraday + Short-term signal cards -->
+<div class="grid" style="grid-template-columns: 1fr 1fr; gap: 18px; margin-top: 0;">
+  <div class="card">
+    <h2 style="margin: 0 0 12px; display: flex; align-items: center; justify-content: space-between;">
+      <span style="display: inline-flex; align-items: center; gap: 6px;"><i data-lucide="zap"></i>Intraday signals</span>
+      <span id="intraday-bias" class="pill" style="font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px;">…</span>
+    </h2>
+    <div id="intraday-body" style="font-size: 13px; color: var(--muted);">Loading…</div>
+  </div>
+  <div class="card">
+    <h2 style="margin: 0 0 12px; display: flex; align-items: center; justify-content: space-between;">
+      <span style="display: inline-flex; align-items: center; gap: 6px;"><i data-lucide="trending-up"></i>Short-term setup</span>
+      <span id="short-setup" class="pill" style="font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px;">…</span>
+    </h2>
+    <div id="short-body" style="font-size: 13px; color: var(--muted);">Loading…</div>
+  </div>
+</div>
+
+<style>
+  .sig-row { display: flex; justify-content: space-between; padding: 4px 0; border-bottom: 1px solid var(--border-soft); font-size: 13px; }
+  .sig-row:last-child { border-bottom: 0; }
+  .sig-row .lbl { color: var(--muted); }
+  .sig-row .val { font-weight: 500; color: var(--text); }
+  .sig-notes { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--border); }
+  .sig-notes ul { margin: 0; padding-left: 18px; font-size: 12px; }
+  .sig-notes li { margin: 3px 0; }
+  .bias-bullish, .bias-strong-bullish, .setup-bullish, .setup-strong-bullish { background: var(--green-soft); color: var(--green); }
+  .bias-bearish, .bias-strong-bearish, .setup-bearish, .setup-strong-bearish { background: var(--red-soft); color: var(--red); }
+  .bias-neutral, .setup-neutral { background: var(--panel-soft); color: var(--muted); }
+</style>
+
+<script>
+function fmtPct(v, sign=true) {
+  if (v === null || v === undefined) return '—';
+  return (sign ? (v > 0 ? '+' : '') : '') + v.toFixed(2) + '%';
+}
+function fmtMoney(v) { return v === null || v === undefined ? '—' : '₹' + v.toLocaleString('en-IN', {minimumFractionDigits: 2, maximumFractionDigits: 2}); }
+function fmtNum(v, dp=2) { return v === null || v === undefined ? '—' : v.toFixed(dp); }
+function pillClass(prefix, label) { return prefix + '-' + label.replace(/\s+/g, '-'); }
+
+fetch('/api/intraday/{{ r.ticker }}')
+  .then(r => r.json())
+  .then(d => {
+    const biasEl = document.getElementById('intraday-bias');
+    const body = document.getElementById('intraday-body');
+    if (!d.available) {
+      biasEl.textContent = 'closed';
+      body.innerHTML = '<div style="padding: 8px 0;">Market closed or no intraday data available.</div>';
+      return;
+    }
+    biasEl.textContent = d.bias;
+    biasEl.className = 'pill ' + pillClass('bias', d.bias);
+    body.innerHTML = `
+      <div class="sig-row" title="Latest price and how far it has moved from yesterday's close."><span class="lbl">Last / Day change</span>
+        <span class="val">${fmtMoney(d.last_price)} <span class="${d.day_change_pct > 0 ? 'pos' : (d.day_change_pct < 0 ? 'neg' : 'neutral')}">${fmtPct(d.day_change_pct)}</span></span></div>
+      <div class="sig-row" title="Today's opening price and the gap from yesterday's close. Big positive gap = pre-market buying enthusiasm; big negative gap = bad news overnight."><span class="lbl">Open / Gap</span>
+        <span class="val">${fmtMoney(d.open_price)} <span class="${d.gap_pct > 0 ? 'pos' : (d.gap_pct < 0 ? 'neg' : 'neutral')}">${fmtPct(d.gap_pct)}</span></span></div>
+      <div class="sig-row" title="The highest and lowest price the stock has hit so far today."><span class="lbl">Day high / low</span>
+        <span class="val">${fmtMoney(d.day_high)} / ${fmtMoney(d.day_low)}</span></div>
+      <div class="sig-row" title="Volume-Weighted Average Price for today: the average price weighted by volume traded at each level. Price above VWAP = buyers in control. Below VWAP = sellers in control. Day-traders watch this closely."><span class="lbl">VWAP</span>
+        <span class="val">${fmtMoney(d.vwap)} ${d.vs_vwap_pct !== null ? '<span class="' + (d.vs_vwap_pct > 0 ? 'pos' : 'neg') + '">' + fmtPct(d.vs_vwap_pct) + '</span>' : ''}</span></div>
+      <div class="sig-row" title="The first 30-minute high and low of the trading day. Closing above the OR-high = bullish breakout (long signal). Below OR-low = bearish breakdown (short signal). Inside the range = wait."><span class="lbl">Opening range (30m)</span>
+        <span class="val">${fmtMoney(d.or_low)} – ${fmtMoney(d.or_high)} · <strong>${d.orb_signal}</strong></span></div>
+      <div class="sig-row" title="RSI computed on 15-minute bars (intraday-fast version). Above 70 = momentum stretched, expect a pullback. Below 30 = oversold intraday."><span class="lbl">Intraday RSI (15m)</span>
+        <span class="val ${d.intraday_rsi > 70 ? 'neg' : (d.intraday_rsi < 30 ? 'pos' : '')}">${fmtNum(d.intraday_rsi, 0)}</span></div>
+      <div class="sig-row" title="Today's total volume vs the average of the last 4 trading days. >1.5x = unusual activity (something is happening). <0.5x = quiet day, less conviction in any move."><span class="lbl">Volume vs 4-day avg</span>
+        <span class="val">${d.volume_ratio !== null ? d.volume_ratio.toFixed(2) + 'x' : '—'}</span></div>
+      ${d.notes && d.notes.length ? '<div class="sig-notes"><ul>' + d.notes.map(n => '<li>' + n + '</li>').join('') + '</ul></div>' : ''}
+    `;
+  })
+  .catch(() => {
+    document.getElementById('intraday-body').innerHTML = '<div style="padding: 8px 0;">Failed to load intraday data.</div>';
+    document.getElementById('intraday-bias').textContent = 'error';
+  });
+
+fetch('/api/short-term/{{ r.ticker }}')
+  .then(r => r.json())
+  .then(d => {
+    const setupEl = document.getElementById('short-setup');
+    const body = document.getElementById('short-body');
+    if (!d.available) {
+      setupEl.textContent = 'unavailable';
+      body.innerHTML = '<div style="padding: 8px 0;">Insufficient data for short-term signal.</div>';
+      return;
+    }
+    setupEl.textContent = d.setup;
+    setupEl.className = 'pill ' + pillClass('setup', d.setup);
+    const trendBadge = d.adx > 25 ? '<span class="pos">strong</span>' : (d.adx > 15 ? 'moderate' : '<span class="neutral">weak</span>');
+    body.innerHTML = `
+      <div class="sig-row" title="Simple moving averages: 5-day, 10-day, 20-day. When stacked 5>10>20 the short-term trend is bullish. Stacked 5<10<20 = bearish. Crossings between them are early trend-change signals."><span class="lbl">5 / 10 / 20 SMA</span>
+        <span class="val">${fmtMoney(d.sma_5)} / ${fmtMoney(d.sma_10)} / ${fmtMoney(d.sma_20)}</span></div>
+      <div class="sig-row" title="Bollinger Band %B: where price sits between the lower (0%) and upper (100%) bands. >100% = stretched up. <0% = stretched down. Squeeze = bands narrowing, often precedes a sharp move (direction unknown)."><span class="lbl">Bollinger position</span>
+        <span class="val">${d.bb_pct_b !== null ? '%B = ' + (d.bb_pct_b * 100).toFixed(0) + '%' : '—'}${d.bb_squeeze ? ' · <span class="neutral">squeeze</span>' : ''}</span></div>
+      <div class="sig-row" title="The Bollinger upper and lower band levels (20-day SMA ± 2 standard deviations). Acts as a volatility envelope — price tends to revert to the middle from these extremes."><span class="lbl">Bollinger band</span>
+        <span class="val">${fmtMoney(d.bb_lower)} – ${fmtMoney(d.bb_upper)}</span></div>
+      <div class="sig-row" title="Stochastic Oscillator: faster momentum gauge than RSI. Above 80 = overbought. Below 20 = oversold. %K crossing above %D from below 20 = early bullish signal. The opposite from above 80 = bearish."><span class="lbl">Stochastic %K / %D</span>
+        <span class="val">${fmtNum(d.stoch_k, 0)} / ${fmtNum(d.stoch_d, 0)}</span></div>
+      <div class="sig-row" title="ADX measures trend STRENGTH (not direction). Above 25 = strong trend (whichever way price is going, it's going there hard). Below 15 = sideways/choppy market — trend strategies don't work, range strategies do."><span class="lbl">ADX (trend strength)</span>
+        <span class="val">${fmtNum(d.adx, 0)} · ${trendBadge}</span></div>
+      <div class="sig-row" title="Did today's close break above the highest price of the prior 10 days (=up)? Or below the lowest (=down)? Breakouts often start new short-term trends."><span class="lbl">10-day breakout</span>
+        <span class="val">${d.breakout_10d === 'up' ? '<span class="pos">up</span>' : (d.breakout_10d === 'down' ? '<span class="neg">down</span>' : '<span class="neutral">inside range</span>')}</span></div>
+      <div class="sig-row" title="Relative Strength vs NIFTY 50: how this stock has performed minus how the index has performed over 5 and 20 trading days. Positive = leader (outperforming). Negative = laggard (worse than market). Big +/- = strong divergence."><span class="lbl">vs NIFTY (5d / 20d)</span>
+        <span class="val">${d.rs_5d_vs_nifty !== null ? '<span class="' + (d.rs_5d_vs_nifty > 0 ? 'pos' : 'neg') + '">' + fmtPct(d.rs_5d_vs_nifty) + '</span>' : '—'}
+          / ${d.rs_20d_vs_nifty !== null ? '<span class="' + (d.rs_20d_vs_nifty > 0 ? 'pos' : 'neg') + '">' + fmtPct(d.rs_20d_vs_nifty) + '</span>' : '—'}</span></div>
+      ${d.notes && d.notes.length ? '<div class="sig-notes"><ul>' + d.notes.map(n => '<li>' + n + '</li>').join('') + '</ul></div>' : ''}
+    `;
+  })
+  .catch(() => {
+    document.getElementById('short-body').innerHTML = '<div style="padding: 8px 0;">Failed to load short-term signal.</div>';
+    document.getElementById('short-setup').textContent = 'error';
+  });
+</script>
+
+<!-- Price chart -->
+<div class="card">
+  <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; flex-wrap: wrap; gap: 8px;">
+    <h2 style="margin: 0; display: flex; align-items: center; gap: 6px;"><i data-lucide="line-chart"></i>Price · 50/200 SMA</h2>
+    <div style="display: flex; gap: 14px; align-items: center; flex-wrap: wrap;">
+      <div id="period-toggles" style="display: flex; gap: 4px;">
+        <button type="button" data-period="1mo" class="period-btn">1M</button>
+        <button type="button" data-period="3mo" class="period-btn">3M</button>
+        <button type="button" data-period="6mo" class="period-btn">6M</button>
+        <button type="button" data-period="1y" class="period-btn active">1Y</button>
+        <button type="button" data-period="2y" class="period-btn">2Y</button>
+        <button type="button" data-period="5y" class="period-btn">5Y</button>
+      </div>
+      <div style="font-size: 12px; color: var(--muted);">
+        <span style="color: #2563eb;">●</span> Close
+        <span style="color: #f59e0b; margin-left: 10px;">●</span> 50 SMA
+        <span style="color: #ef4444; margin-left: 10px;">●</span> 200 SMA
+      </div>
+    </div>
+  </div>
+  <div style="height: 320px; position: relative;">
+    <canvas id="price-chart"></canvas>
+  </div>
+</div>
+
+<!-- RSI + MACD charts -->
+<div class="grid" style="grid-template-columns: 1fr 1fr; gap: 18px;">
+  <div class="card">
+    <h2 style="margin: 0 0 12px; display: flex; align-items: center; gap: 6px;"><i data-lucide="activity"></i>RSI(14)</h2>
+    <div style="height: 220px; position: relative;"><canvas id="rsi-chart"></canvas></div>
+  </div>
+  <div class="card">
+    <h2 style="margin: 0 0 12px; display: flex; align-items: center; gap: 6px;"><i data-lucide="bar-chart-3"></i>MACD</h2>
+    <div style="height: 220px; position: relative;"><canvas id="macd-chart"></canvas></div>
+  </div>
+</div>
+
+<!-- NSE corporate filings — earnings call transcripts, concalls, investor presentations -->
+<div class="card">
+  <h2 style="margin: 0 0 12px; display: flex; align-items: center; gap: 6px;"><i data-lucide="file-text" style="color: var(--accent);"></i>NSE filings & earnings call analysis</h2>
+  <div id="nse-filings-summary" style="font-size: 13px; color: var(--muted); margin-bottom: 12px;">Loading from NSE…</div>
+  <div id="nse-filings-list" style="font-size: 13px;"></div>
+</div>
+
+<script>
+fetch('/api/nse-filings/{{ r.ticker }}')
+  .then(r => r.json())
+  .then(d => {
+    const summ = document.getElementById('nse-filings-summary');
+    const list = document.getElementById('nse-filings-list');
+    if (!d.available) {
+      summ.innerHTML = '<em>NSE filings unavailable: ' + (d.reason || 'unknown') + '</em>';
+      return;
+    }
+    if (d.count === 0) {
+      summ.innerHTML = '<em>No transcripts, concalls, or investor presentations filed in the last 12 months.</em>';
+      return;
+    }
+    const esc = (s) => (s || '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+
+    // Aggregate sentiment badge across the top-N analysed filings
+    const agg = d.aggregate || {};
+    let sentBadge = '';
+    if (agg.analysed_count) {
+      const s = agg.avg_sentiment;
+      const tone = s > 0.25 ? 'positive' : (s < -0.15 ? 'negative' : 'neutral');
+      const label = tone === 'positive' ? 'Management tone: bullish'
+                  : tone === 'negative' ? 'Management tone: cautious'
+                  : 'Management tone: balanced';
+      sentBadge = `<span class="tone-badge tone-${tone}">${label} (${s})</span>`;
+    }
+
+    summ.innerHTML = `<strong style="color: var(--text); font-size: 14px;">${d.count}</strong> filing${d.count > 1 ? 's' : ''} found
+      <span style="opacity: 0.7;">· top ${agg.analysed_count || 0} analysed · source: NSE corporate-announcements API</span>
+      ${sentBadge}`;
+
+    const renderList = (heading, arr, icon) => {
+      if (!arr || !arr.length) return '';
+      return `
+        <div class="analysis-block">
+          <div class="analysis-block-h"><i data-lucide="${icon}"></i>${heading}</div>
+          <ul class="analysis-list">
+            ${arr.map(x => `<li>${esc(x)}</li>`).join('')}
+          </ul>
+        </div>`;
+    };
+
+    const renderMetrics = (mets) => {
+      if (!mets || !mets.length) return '';
+      const labelMap = { revenue:'Revenue', ebitda:'EBITDA', pat:'PAT', margin:'Margin',
+                         order_book:'Order book', debt:'Debt', roe:'RoE', roce:'RoCE' };
+      return `
+        <div class="analysis-block">
+          <div class="analysis-block-h"><i data-lucide="bar-chart-2"></i>Key numbers cited</div>
+          <div class="metric-grid">
+            ${mets.map(m => `
+              <div class="metric-cell">
+                <div class="metric-cell-label">${esc(labelMap[m.label] || m.label)}</div>
+                <div class="metric-cell-value">${esc(m.value)}</div>
+                <div class="metric-cell-ctx">${esc((m.sentence || '').slice(0, 140))}…</div>
+              </div>`).join('')}
+          </div>
+        </div>`;
+    };
+
+    const renderGuidance = (gs) => {
+      if (!gs || !gs.length) return '';
+      return `
+        <div class="analysis-block">
+          <div class="analysis-block-h"><i data-lucide="target"></i>Forward guidance</div>
+          <ul class="analysis-list">
+            ${gs.map(g => {
+              const tag = (g.horizon || g.value)
+                ? `<span class="g-tag">${esc([g.horizon, g.value].filter(Boolean).join(' · '))}</span>` : '';
+              return `<li>${tag} ${esc(g.sentence)}</li>`;
+            }).join('')}
+          </ul>
+        </div>`;
+    };
+
+    const renderTargets = (ts) => {
+      if (!ts || !ts.length) return '';
+      return `
+        <div class="analysis-block">
+          <div class="analysis-block-h"><i data-lucide="crosshair"></i>Quoted broker targets</div>
+          <ul class="analysis-list">
+            ${ts.map(t => `<li><strong>₹${esc(t.price)}</strong> ${t.horizon ? '(' + esc(t.horizon) + ')' : ''} — ${esc(t.sentence)}</li>`).join('')}
+          </ul>
+        </div>`;
+    };
+
+    list.innerHTML = d.items.slice(0, 15).map((it, idx) => {
+      const pdfBtn = it.attachment_url
+        ? (it.file
+            ? `<a href="/filings/pdf/{{ r.ticker }}/${esc(it.file)}" target="_blank" class="pdf-link">View PDF</a>`
+            : `<a href="${esc(it.attachment_url)}" target="_blank" class="pdf-link">NSE PDF</a>`)
+        : '';
+      const a = it.analysis || {};
+      const hasAnalysis = a && a.highlight_count > 0;
+      const docBadge = a.doc_type
+        ? `<span class="doc-badge doc-${a.doc_type}">${a.doc_type}</span>` : '';
+      const collapsedClass = idx === 0 ? '' : 'collapsed';
+      const summaryBlock = a.summary
+        ? `<div class="filing-summary">${esc(a.summary)}</div>` : '';
+      return `
+        <div class="filing-row ${collapsedClass}">
+          <div class="filing-meta">
+            <span><strong>${esc(it.date || '—')}</strong> ${docBadge} · ${esc(it.subject)}</span>
+            <span>${pdfBtn}</span>
+          </div>
+          ${hasAnalysis ? `
+            ${summaryBlock}
+            ${renderMetrics(a.key_metrics)}
+            ${renderGuidance(a.guidance)}
+            ${renderList('Capex & strategic plans', a.capex_strategic, 'building-2')}
+            ${renderList('Positives flagged', a.positives, 'trending-up')}
+            ${renderList('Risks acknowledged', a.risks, 'alert-triangle')}
+            ${renderTargets(a.quoted_targets)}
+          ` : (it.text_excerpt
+              ? `<div class="filing-excerpt">${esc(it.text_excerpt)}…</div>`
+              : (it.long_desc ? `<div class="filing-excerpt">${esc(it.long_desc)}…</div>` : ''))}
+        </div>
+      `;
+    }).join('');
+
+    // Re-init Lucide for new icons
+    if (window.lucide) window.lucide.createIcons();
+  })
+  .catch(() => {
+    document.getElementById('nse-filings-summary').innerHTML = '<em>Failed to load filings from NSE.</em>';
+  });
+</script>
+
+<style>
+  .filing-row { padding: 14px 0; border-bottom: 1px solid var(--border-soft); }
+  .filing-row:last-child { border-bottom: 0; }
+  .filing-meta { display: flex; justify-content: space-between; align-items: center; gap: 12px; font-size: 12px; color: var(--muted); margin-bottom: 8px; flex-wrap: wrap; }
+  .filing-meta strong { color: var(--text); }
+  .filing-excerpt { font-size: 12px; color: var(--text-soft); line-height: 1.5; padding: 6px 10px; background: var(--panel-soft); border-radius: 4px; max-height: 100px; overflow: hidden; }
+  .filing-summary { font-size: 13px; color: var(--text); line-height: 1.55; padding: 10px 12px; background: var(--panel-soft); border-left: 3px solid var(--accent); border-radius: 4px; margin-bottom: 10px; }
+
+  .doc-badge { display: inline-block; font-size: 10px; padding: 1px 6px; border-radius: 3px; text-transform: uppercase; letter-spacing: 0.3px; margin: 0 4px; font-weight: 600; }
+  .doc-concall      { background: #e3f2fd; color: #1565c0; }
+  .doc-presentation { background: #f3e5f5; color: #7b1fa2; }
+  .doc-research     { background: #fff3e0; color: #ef6c00; }
+  .doc-transcript   { background: #eceff1; color: #455a64; }
+
+  .tone-badge { display: inline-block; margin-left: 10px; font-size: 11px; padding: 2px 8px; border-radius: 10px; font-weight: 600; }
+  .tone-positive { background: #e8f5e9; color: #2e7d32; }
+  .tone-negative { background: #ffebee; color: #c62828; }
+  .tone-neutral  { background: #eceff1; color: #455a64; }
+
+  .analysis-block { margin: 10px 0 4px; }
+  .analysis-block-h { display: flex; align-items: center; gap: 6px; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.4px; color: var(--muted); margin-bottom: 6px; }
+  .analysis-block-h i { width: 13px; height: 13px; }
+  .analysis-list { margin: 0; padding-left: 18px; font-size: 12.5px; line-height: 1.55; color: var(--text-soft); }
+  .analysis-list li { margin-bottom: 4px; }
+  .g-tag { display: inline-block; font-size: 10px; padding: 1px 6px; border-radius: 3px; background: var(--accent-soft, #e3f2fd); color: var(--accent, #1565c0); font-weight: 600; margin-right: 6px; }
+
+  .metric-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 8px; }
+  .metric-cell { padding: 8px 10px; border: 1px solid var(--border-soft); border-radius: 4px; background: var(--panel-soft); }
+  .metric-cell-label { font-size: 10px; text-transform: uppercase; letter-spacing: 0.4px; color: var(--muted); font-weight: 600; }
+  .metric-cell-value { font-size: 14px; color: var(--text); font-weight: 700; margin: 2px 0 4px; }
+  .metric-cell-ctx {
+    font-size: 11px;
+    color: var(--text-soft);
+    line-height: 1.4;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+</style>
+
+<!--
+  Earnings call transcripts come from NSE corporate filings (card above) —
+  that's the authoritative source. The 'meeting transcripts' card for local
+  files was removed because it was confusing: it surfaced "ticker not found"
+  for every ticker that wasn't in a user-dropped file, even though the NSE
+  card already has the real transcripts.
+
+  Local-folder transcripts (data/transcripts/) are still indexed in the
+  background and reachable via /api/transcripts/<ticker> if anyone wants
+  to add personal meeting notes — they just don't get a primary card.
+-->
+<div id="research-grid" class="grid" style="grid-template-columns: 1fr 1fr; gap: 18px;">
+  <div class="card" id="telegram-research-card">
+    <h2 style="margin: 0 0 12px; display: flex; align-items: center; gap: 6px;"><i data-lucide="message-square-text" style="color: var(--purple);"></i>Telegram research mentions</h2>
+    <div id="research-summary" style="font-size: 13px; color: var(--muted); margin-bottom: 12px;">Loading…</div>
+    <div id="research-list" style="font-size: 12px;"></div>
+  </div>
+  <div class="card">
+    <h2 style="margin: 0 0 12px; display: flex; align-items: center; gap: 6px;"><i data-lucide="newspaper"></i>Recent news</h2>
+    <div id="news-list" style="font-size: 13px; color: var(--muted);">Loading…</div>
+  </div>
+</div>
+
+<style>
+  .mention { padding: 10px 0; border-bottom: 1px solid var(--border-soft); }
+  .mention:last-child { border-bottom: 0; }
+  .mention-meta { display: flex; justify-content: space-between; align-items: center; gap: 8px; font-size: 11px; color: var(--muted); margin-bottom: 4px; }
+  .mention-text { color: var(--text-soft); line-height: 1.5; max-height: 78px; overflow: hidden; text-overflow: ellipsis; }
+  .sentiment-pos { color: var(--green); font-weight: 600; }
+  .sentiment-neg { color: var(--red); font-weight: 600; }
+  .target-pill { background: var(--accent-soft); color: var(--accent); padding: 1px 7px; border-radius: 3px; font-size: 11px; font-weight: 600; }
+  .stop-pill { background: var(--red-soft); color: var(--red); padding: 1px 7px; border-radius: 3px; font-size: 11px; font-weight: 600; }
+  .pdf-link { background: var(--purple-soft); color: var(--purple); padding: 1px 7px; border-radius: 3px; font-size: 11px; font-weight: 600; text-decoration: none; }
+  .pdf-link:hover { text-decoration: underline; }
+  .mini-analysis { margin-top: 10px; padding-top: 8px; border-top: 1px dashed var(--border-soft); display: flex; flex-direction: column; gap: 4px; }
+  .mini-analysis-summary { font-size: 11.5px; color: var(--text); line-height: 1.5; padding: 6px 8px; background: var(--panel-soft); border-left: 2px solid var(--accent); border-radius: 3px; }
+  .mini-bit { font-size: 11px; color: var(--text-soft); line-height: 1.45; }
+  .mini-bit strong { color: var(--text); }
+  .mini-bit-risk strong { color: var(--red, #c62828); }
+</style>
+
+<script>
+fetch('/api/research/{{ r.ticker }}')
+  .then(r => r.json())
+  .then(d => {
+    const summary = document.getElementById('research-summary');
+    const list = document.getElementById('research-list');
+    // No useful data → hide the card entirely and let News take the full row.
+    // Same UX principle as the Meeting-transcripts card: don't surface empty
+    // states for tickers your research feeds simply haven't covered.
+    const hideCard = () => {
+      const card = document.getElementById('telegram-research-card');
+      const grid = document.getElementById('research-grid');
+      if (card) card.style.display = 'none';
+      if (grid) grid.style.gridTemplateColumns = '1fr';
+    };
+    if (!d.available) {
+      // Telegram unconfigured / session busy — silently collapse.
+      hideCard();
+      return;
+    }
+    if (d.mentions_count === 0) {
+      hideCard();
+      return;
+    }
+    const targets = d.quoted_targets || [];
+    const targetStr = targets.length
+      ? targets.slice(0, 5).map(t => '₹' + Math.round(t)).join(', ') + (targets.length > 5 ? ` +${targets.length - 5} more` : '')
+      : 'none extracted';
+    const sentClass = d.avg_sentiment > 0.05 ? 'sentiment-pos' : (d.avg_sentiment < -0.05 ? 'sentiment-neg' : '');
+    summary.innerHTML = `
+      <strong style="color: var(--text); font-size: 14px;">${d.mentions_count}</strong> mentions · last 14d
+      · sentiment <span class="${sentClass}">${d.avg_sentiment > 0 ? '+' : ''}${d.avg_sentiment.toFixed(2)}</span>
+      <br><span style="font-size: 11px;">Quoted targets: <strong style="color: var(--accent);">${targetStr}</strong></span>
+    `;
+    const esc = (s) => (s || '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+
+    // Compact analysis block from research-extract
+    const a = d.analysis || {};
+    const aBits = [];
+    if (a.summary)
+      aBits.push(`<div class="mini-analysis-summary">${esc(a.summary.slice(0, 240))}</div>`);
+    if (a.guidance && a.guidance.length)
+      aBits.push(`<div class="mini-bit"><strong>Guidance:</strong> ${esc((a.guidance[0].horizon || a.guidance[0].value || a.guidance[0].sentence || '').slice(0, 100))}</div>`);
+    if (a.key_metrics && a.key_metrics.length) {
+      const top = a.key_metrics[0];
+      aBits.push(`<div class="mini-bit"><strong>Numbers:</strong> ${esc(top.label)} ${esc(top.value)}</div>`);
+    }
+    if (a.risks && a.risks.length)
+      aBits.push(`<div class="mini-bit mini-bit-risk"><strong>Caution:</strong> ${esc(a.risks[0].slice(0, 100))}</div>`);
+    if (aBits.length) {
+      const block = document.createElement('div');
+      block.className = 'mini-analysis';
+      block.innerHTML = aBits.join('');
+      summary.appendChild(block);
+    }
+    const fmtDate = (iso) => {
+      try {
+        const dt = new Date(iso);
+        if (isNaN(dt)) return iso;
+        const now = new Date();
+        const diffH = (now - dt) / 36e5;
+        if (diffH < 24) return Math.max(1, Math.floor(diffH)) + 'h ago';
+        if (diffH < 24 * 7) return Math.floor(diffH / 24) + 'd ago';
+        return iso.slice(0, 10);
+      } catch (e) { return iso; }
+    };
+    list.innerHTML = d.mentions.map(m => {
+      const pdfLink = (m.has_pdf && m.msg_id && m.channel_id)
+        ? `<a href="/reports/pdf/${m.channel_id}/${m.msg_id}.pdf" target="_blank" class="pdf-link" title="Open the source research-report PDF">📄 View PDF</a>`
+        : '';
+      return `
+      <div class="mention">
+        <div class="mention-meta">
+          <span><strong>${esc(m.group)}</strong> · ${fmtDate(m.when)}</span>
+          <span>
+            ${pdfLink}
+            ${m.target ? '<span class="target-pill">TGT ₹' + Math.round(m.target) + '</span>' : ''}
+            ${m.stop ? ' <span class="stop-pill">SL ₹' + Math.round(m.stop) + '</span>' : ''}
+            ${m.sentiment > 0.05 ? '<span class="sentiment-pos">+' + m.sentiment.toFixed(2) + '</span>' : ''}
+            ${m.sentiment < -0.05 ? '<span class="sentiment-neg">' + m.sentiment.toFixed(2) + '</span>' : ''}
+          </span>
+        </div>
+        <div class="mention-text">${esc(m.text_excerpt)}</div>
+      </div>
+      `;
+    }).join('');
+  })
+  .catch(() => {
+    document.getElementById('research-summary').innerHTML = '<em>Failed to load Telegram research mentions.</em>';
+  });
+</script>
+
+<style>
+  .news-item { display: block; padding: 10px 0; border-bottom: 1px solid var(--border-soft); text-decoration: none; color: var(--text); }
+  .news-item:last-child { border-bottom: 0; }
+  .news-item:hover { text-decoration: none; }
+  .news-item:hover .news-title { color: var(--accent); }
+  .news-title { font-weight: 500; line-height: 1.4; margin-bottom: 4px; transition: color 0.1s; }
+  .news-meta { font-size: 11px; color: var(--muted); display: flex; align-items: center; gap: 8px; }
+  .news-source-pill { background: var(--panel-soft); color: var(--muted); padding: 1px 6px; border-radius: 3px; font-size: 10px; text-transform: uppercase; letter-spacing: 0.5px; }
+  .news-source-pill.yahoo { background: #ede9fe; color: #5b21b6; }
+  .news-source-pill.moneycontrol { background: #fee2e2; color: #b91c1c; }
+</style>
+
+<script>
+fetch('/api/news/{{ r.ticker }}')
+  .then(r => r.json())
+  .then(d => {
+    const el = document.getElementById('news-list');
+    if (!d.items || !d.items.length) {
+      el.innerHTML = '<div style="padding: 8px 0;">No recent news available for this ticker.</div>';
+      return;
+    }
+    const fmt = (iso) => {
+      if (!iso) return '';
+      try {
+        const d = new Date(iso);
+        if (isNaN(d.getTime())) return iso.slice(0, 16);
+        const now = new Date();
+        const diffH = (now - d) / 36e5;
+        if (diffH < 1) return Math.max(1, Math.floor(diffH * 60)) + 'm ago';
+        if (diffH < 24) return Math.floor(diffH) + 'h ago';
+        if (diffH < 24 * 7) return Math.floor(diffH / 24) + 'd ago';
+        return d.toISOString().slice(0, 10);
+      } catch (e) { return iso; }
+    };
+    const esc = (s) => (s || '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+    el.innerHTML = d.items.map(it => `
+      <a class="news-item" href="${esc(it.url)}" target="_blank" rel="noopener noreferrer">
+        <div class="news-title">${esc(it.title)}</div>
+        <div class="news-meta">
+          <span class="news-source-pill ${it.source}">${esc(it.publisher || it.source)}</span>
+          ${it.published_at ? '· <span>' + esc(fmt(it.published_at)) + '</span>' : ''}
+        </div>
+      </a>
+    `).join('');
+  })
+  .catch(() => {
+    document.getElementById('news-list').innerHTML =
+      '<div style="padding: 8px 0;">Failed to load news.</div>';
+  });
+</script>
+
+{% if r.rationale %}
+<div class="card">
+  <h2 style="margin: 0 0 8px; display: flex; align-items: center; gap: 6px;"><i data-lucide="list-checks"></i>Full rationale</h2>
+  <ul style="margin: 0; padding-left: 20px; font-size: 13px; color: var(--muted);">
+    {% for n in r.rationale %}<li>{{ n }}</li>{% endfor %}
+  </ul>
+</div>
+{% endif %}
+
+<div style="margin-top: 24px; display: flex; gap: 16px;">
+  <a href="/" class="nav-link"><i data-lucide="arrow-left"></i>Recommendations</a>
+  <a href="/screener" class="nav-link"><i data-lucide="filter"></i>Full screener</a>
+</div>
+
+<style>
+  .ratios-strip { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 1px; background: var(--border); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; margin-bottom: 18px; }
+  .ratio { background: var(--panel); padding: 14px 16px; }
+  .ratio .lbl { display: block; color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px; }
+  .ratio .val { font-size: 18px; font-weight: 600; }
+  .ratio .val.pos { color: var(--green); }
+  .ratio .val.neg { color: var(--red); }
+  .proscons { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-bottom: 18px; }
+  .proscons-box { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 14px 18px; }
+  .proscons-box.pros { border-left: 3px solid var(--green); }
+  .proscons-box.cons { border-left: 3px solid var(--red); }
+  .proscons-title { font-size: 11px; font-weight: 700; letter-spacing: 1px; margin-bottom: 8px; color: var(--muted); }
+  .pros .proscons-title { color: var(--green); }
+  .cons .proscons-title { color: var(--red); }
+  .proscons-box ul { margin: 0; padding-left: 18px; font-size: 13px; }
+  .proscons-box li { margin: 4px 0; }
+  @media (max-width: 700px) { .proscons { grid-template-columns: 1fr; } }
+  .period-btn { background: var(--panel); border: 1px solid var(--border); color: var(--muted); padding: 4px 10px; font-size: 12px; border-radius: 4px; cursor: pointer; font-weight: 500; box-shadow: none; }
+  .period-btn:hover { color: var(--text); border-color: var(--muted); background: var(--panel-soft); }
+  .period-btn.active { background: var(--accent); color: #ffffff; border-color: var(--accent); }
+</style>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+<script>
+let priceChart = null, rsiChart = null, macdChart = null;
+const opts = (extra) => Object.assign({
+  responsive: true, maintainAspectRatio: false, animation: { duration: 0 },
+  interaction: { mode: 'index', intersect: false },
+  plugins: { legend: { display: false }, tooltip: { backgroundColor: '#ffffff', titleColor: '#1a1f2e', bodyColor: '#1a1f2e', borderColor: '#e2e5eb', borderWidth: 1 } },
+  scales: {
+    x: { ticks: { color: '#6b7280', maxTicksLimit: 8, autoSkip: true }, grid: { color: '#e2e5eb' } },
+    y: { ticks: { color: '#6b7280' }, grid: { color: '#e2e5eb' } }
+  }
+}, extra);
+
+function showChartError(msg) {
+  ['price-chart','rsi-chart','macd-chart'].forEach(id => {
+    const c = document.getElementById(id);
+    if (c) c.parentElement.innerHTML =
+      '<div style="color: var(--muted); text-align: center; padding: 30px; font-size: 13px; line-height: 1.6;">' + msg + '</div>';
+  });
+}
+
+function loadChart(period) {
+  fetch('/api/chart/{{ r.ticker }}?period=' + period)
+    .then(r => r.json().catch(() => ({error: 'Server returned ' + r.status, available: false})))
+    .then(d => {
+      if (d.error || d.available === false) {
+        // Friendly message — often this is a ticker yfinance can't fetch
+        // (demerger, ticker rename, delisting, or transient API glitch).
+        showChartError(
+          '<i data-lucide="alert-circle" style="color: var(--yellow-bright);"></i> '
+          + 'Price chart unavailable for <strong>{{ r.ticker }}</strong>.'
+          + '<br><span style="font-size: 11px;">' + (d.error || 'No data') + '</span>'
+          + '<br><span style="font-size: 11px;">Other sections (recommendation, news, research) still load below.</span>'
+        );
+        if (window.lucide) lucide.createIcons();
+        return;
+      }
+      if (!d.dates || !d.dates.length) {
+        showChartError('No price data available for {{ r.ticker }}.');
+        return;
+      }
+      const labels = d.dates;
+
+      try {
+      if (priceChart) priceChart.destroy();
+      priceChart = new Chart(document.getElementById('price-chart'), {
+        type: 'line',
+        data: { labels, datasets: [
+          { label: 'Close',   data: d.close,  borderColor: '#2563eb', backgroundColor: 'rgba(37,99,235,0.06)', borderWidth: 1.8, fill: true,  pointRadius: 0, tension: 0.1 },
+          { label: '50 SMA',  data: d.sma50,  borderColor: '#f59e0b', borderWidth: 1.3, pointRadius: 0, fill: false, tension: 0.1 },
+          { label: '200 SMA', data: d.sma200, borderColor: '#ef4444', borderWidth: 1.3, pointRadius: 0, fill: false, tension: 0.1 },
+        ]},
+        options: opts({})
+      });
+
+      if (rsiChart) rsiChart.destroy();
+      rsiChart = new Chart(document.getElementById('rsi-chart'), {
+        type: 'line',
+        data: { labels, datasets: [
+          { label: 'RSI', data: d.rsi, borderColor: '#7c3aed', backgroundColor: 'rgba(124,58,237,0.06)', borderWidth: 1.8, pointRadius: 0, fill: true, tension: 0.1 }
+        ]},
+        options: opts({ scales: {
+          x: { ticks: { color: '#6b7280', maxTicksLimit: 6, autoSkip: true }, grid: { color: '#e2e5eb' } },
+          y: { min: 0, max: 100, ticks: { color: '#6b7280', stepSize: 20 }, grid: { color: '#e2e5eb' } }
+        } })
+      });
+
+      if (macdChart) macdChart.destroy();
+      macdChart = new Chart(document.getElementById('macd-chart'), {
+        data: { labels, datasets: [
+          { type: 'bar',  label: 'Hist',   data: d.macd_hist,
+            backgroundColor: ctx => (ctx.parsed.y >= 0 ? 'rgba(34,197,94,0.5)' : 'rgba(239,68,68,0.5)'), borderWidth: 0 },
+          { type: 'line', label: 'MACD',   data: d.macd,   borderColor: '#2563eb', borderWidth: 1.4, pointRadius: 0, fill: false },
+          { type: 'line', label: 'Signal', data: d.signal, borderColor: '#f59e0b', borderWidth: 1.2, pointRadius: 0, fill: false },
+        ]},
+        options: opts({})
+      });
+      } catch (e) {
+        showChartError('Chart render error: ' + (e.message || e));
+        console.error('Chart render error:', e);
+      }
+    })
+    .catch(e => {
+      showChartError(
+        '<i data-lucide="alert-circle" style="color: var(--yellow-bright);"></i> '
+        + 'Could not reach the chart endpoint.'
+        + '<br><span style="font-size: 11px;">' + (e.message || 'Network error') + '</span>'
+      );
+      if (window.lucide) lucide.createIcons();
+      console.error('Chart fetch error:', e);
+    });
+}
+
+document.querySelectorAll('.period-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.period-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    loadChart(btn.dataset.period);
+  });
+});
+
+loadChart('1y');
+</script>
+
+{% endif %}
+{% endblock %}

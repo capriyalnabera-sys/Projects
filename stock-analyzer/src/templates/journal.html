@@ -1,0 +1,192 @@
+{% extends "base.html" %}
+{% block content %}
+
+<div class="topbar">
+  <div>
+    <h2 style="margin: 0;">Trade Journal</h2>
+    <div class="sub" style="margin: 4px 0 0;">
+      Open: <strong>{{ summary.open_count }}</strong> · Closed: <strong>{{ summary.closed_count }}</strong>
+      {% if summary.win_rate is not none %} · Win-rate: <strong>{{ summary.win_rate }}%</strong>{% endif %}
+      · <a href="/journal" onclick="location.reload(true); return false;" style="font-size: 12px;"><i data-lucide="refresh-cw" style="width:11px;height:11px;"></i> Refresh prices</a>
+    </div>
+  </div>
+  <div class="scores">
+    <span class="s">Open P&L <b class="{% if summary.open_pnl > 0 %}pos{% elif summary.open_pnl < 0 %}neg{% endif %}">₹{{ '{:,.0f}'.format(summary.open_pnl) }}</b></span>
+    <span class="s">Closed P&L <b class="{% if summary.closed_pnl > 0 %}pos{% elif summary.closed_pnl < 0 %}neg{% endif %}">₹{{ '{:,.0f}'.format(summary.closed_pnl) }}</b></span>
+    <span class="s">Total <b class="{% if summary.total_pnl > 0 %}pos{% elif summary.total_pnl < 0 %}neg{% endif %}">₹{{ '{:,.0f}'.format(summary.total_pnl) }}</b></span>
+    {% if summary.verdict_hit_rate is not none %}
+      <span class="s" title="% of trades where the verdict-at-entry direction matched current price action ({{ summary.verdict_correct }}/{{ summary.verdict_evaluable }} correct, {{ summary.verdict_wrong }} wrong; pending and 'too early' excluded)">
+        Verdict hit-rate
+        <b class="{% if summary.verdict_hit_rate >= 60 %}pos{% elif summary.verdict_hit_rate < 40 %}neg{% endif %}">{{ summary.verdict_hit_rate }}%</b>
+        <span style="color: var(--muted-soft); font-size: 11px;">({{ summary.verdict_correct }}/{{ summary.verdict_evaluable }})</span>
+      </span>
+    {% endif %}
+  </div>
+</div>
+
+<details class="card" style="padding: 14px 18px;">
+  <summary style="cursor: pointer; font-weight: 600; display: flex; align-items: center; gap: 6px;"><i data-lucide="plus-circle"></i>Add a trade</summary>
+  <form method="post" action="/journal/add" style="margin-top: 14px;" id="add-trade-form">
+    <div class="form-row">
+      <label>Ticker <input type="text" name="ticker" required style="width: 110px; text-transform: uppercase;" placeholder="VEDL"></label>
+      <label>Qty <input type="number" name="qty" id="atf-qty" required style="width: 80px;" placeholder="50"></label>
+      <label>Entry ₹ <input type="number" name="entry_price" id="atf-entry" step="0.01" required style="width: 100px;" placeholder="291.65"></label>
+      <label>Date <input type="date" name="entry_date" required></label>
+      <label>Stop ₹ <input type="number" name="stop_loss" id="atf-stop" step="0.01" style="width: 100px;"></label>
+      <label>Target ₹ <input type="number" name="target" step="0.01" style="width: 100px;"></label>
+    </div>
+    <div id="size-hint" style="display: none; padding: 8px 12px; background: var(--accent-soft); color: var(--accent); border-radius: 6px; font-size: 12px; margin: 8px 0;"></div>
+    <div class="form-row">
+      <input type="text" name="notes" placeholder="Notes (optional)" style="flex: 1;">
+      <button type="submit"><i data-lucide="check"></i>Add</button>
+    </div>
+  </form>
+  <script>
+    (function() {
+      const entry = document.getElementById('atf-entry');
+      const stop = document.getElementById('atf-stop');
+      const qty = document.getElementById('atf-qty');
+      const hint = document.getElementById('size-hint');
+      let timer = null;
+      async function update() {
+        if (!entry.value || !stop.value) { hint.style.display = 'none'; return; }
+        try {
+          const r = await fetch(`/api/position-size?entry=${entry.value}&stop=${stop.value}`);
+          const d = await r.json();
+          if (d.qty && d.qty > 0) {
+            hint.style.display = 'block';
+            hint.innerHTML = `<strong>💡 Suggested qty: ${d.qty}</strong> &middot; ${d.explanation}` +
+              `<br><a href="#" style="color: var(--accent); text-decoration: underline;" onclick="document.getElementById('atf-qty').value=${d.qty}; return false;">Use this qty</a>`;
+          } else {
+            hint.style.display = 'block';
+            hint.innerHTML = '⚠ ' + (d.reason || 'Could not size this trade.');
+          }
+        } catch (e) {}
+      }
+      [entry, stop].forEach(el => el.addEventListener('input', () => {
+        clearTimeout(timer); timer = setTimeout(update, 300);
+      }));
+    })();
+  </script>
+</details>
+
+{% set open_trades = trades | selectattr('status','equalto','open') | list %}
+{% set closed_trades = trades | selectattr('status','equalto','closed') | list %}
+
+{% if open_trades %}
+<h3 class="section-title" style="margin-top: 22px;"><i data-lucide="briefcase" style="color: var(--accent);"></i>Open positions <span class="badge">{{ open_trades|length }}</span></h3>
+<div class="card" style="padding: 0; overflow-x: auto;">
+  <table class="trade-table">
+    <thead>
+      <tr>
+        <th>Ticker</th><th>Qty</th><th>Entry</th><th>LTP</th><th style="text-align:right;">P&L %</th><th style="text-align:right;">P&L ₹</th>
+        <th>Stop / Target</th><th>Days</th><th>Verdict @ entry</th><th>Accuracy</th><th>Notes</th><th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for t in open_trades %}
+      <tr>
+        <td><a href="/stock/{{ t.ticker }}"><strong>{{ t.ticker }}</strong></a>
+          {% if t.alert %}<br><span class="pill" style="background: var(--yellow-soft); color: var(--yellow);">{{ t.alert }}</span>{% endif %}</td>
+        <td>{{ t.qty }}</td>
+        <td>₹{{ '{:,.2f}'.format(t.entry_price) }}<br><span style="color: var(--muted); font-size: 11px;">{{ t.entry_date }}</span></td>
+        <td>
+          {% if t.current_price %}
+            ₹{{ '{:,.2f}'.format(t.current_price) }}
+            {% if t.get('ltp_as_of') %}<br><span style="color: var(--muted); font-size: 11px;" title="When this LTP was last captured by a batch refresh">as of {{ t.ltp_as_of[:16].replace('T',' ') }}</span>{% endif %}
+          {% else %}<span class="neutral">—</span>{% endif %}
+        </td>
+        <td style="text-align:right;" class="{% if t.pnl_pct and t.pnl_pct > 0 %}pos{% elif t.pnl_pct and t.pnl_pct < 0 %}neg{% endif %}">
+          {% if t.pnl_pct is not none %}{{ '{:+.2f}'.format(t.pnl_pct) }}%{% else %}—{% endif %}</td>
+        <td style="text-align:right;" class="{% if t.pnl_total and t.pnl_total > 0 %}pos{% elif t.pnl_total and t.pnl_total < 0 %}neg{% endif %}">
+          {% if t.pnl_total is not none %}₹{{ '{:+,.0f}'.format(t.pnl_total) }}{% else %}—{% endif %}</td>
+        <td style="font-size: 12px; color: var(--muted);">
+          {% if t.stop_loss %}SL ₹{{ '{:,.0f}'.format(t.stop_loss) }}{% endif %}
+          {% if t.target %}<br>TGT ₹{{ '{:,.0f}'.format(t.target) }}{% endif %}
+        </td>
+        <td>{{ t.days_held }}d</td>
+        <td>{% if t.verdict_at_entry %}<span class="verdict {{ t.verdict_at_entry }}">{{ t.verdict_at_entry }}</span>
+          {% if t.score_at_entry is not none %}<br><span style="color: var(--muted); font-size: 11px;">{{ '{:+.2f}'.format(t.score_at_entry) }}</span>{% endif %}
+          {% else %}<span class="neutral">—</span>{% endif %}</td>
+        <td>
+          {% set acc = t.get('verdict_accuracy') %}
+          {% if acc %}
+            <span class="pill accuracy-{{ acc.color }}" title="{{ acc.label }}">
+              {% if acc.color == 'pos' %}<i data-lucide="check" style="width:11px;height:11px;"></i>{% elif acc.color == 'neg' %}<i data-lucide="x" style="width:11px;height:11px;"></i>{% else %}<i data-lucide="clock" style="width:11px;height:11px;"></i>{% endif %}
+              {{ acc.label }}
+            </span>
+          {% else %}<span class="neutral">—</span>{% endif %}
+        </td>
+        <td style="font-size: 12px; color: var(--muted); max-width: 180px;">{{ t.notes or '' }}</td>
+        <td>
+          <details style="position: relative;">
+            <summary style="cursor: pointer; color: var(--muted); list-style: none;">⋯</summary>
+            <div style="position: absolute; right: 0; top: 100%; background: var(--panel); border: 1px solid var(--border); border-radius: 6px; padding: 10px; box-shadow: var(--shadow-md); z-index: 10; min-width: 200px;">
+              <form method="post" action="/journal/close/{{ t.id }}">
+                <div style="font-size: 11px; color: var(--muted); margin-bottom: 4px;">Close trade</div>
+                <input type="number" step="0.01" name="exit_price" required placeholder="Exit ₹" style="width: 100%; margin-bottom: 4px;">
+                <input type="date" name="exit_date" required style="width: 100%; margin-bottom: 6px;">
+                <button type="submit" style="width: 100%;">Close</button>
+              </form>
+              <form method="post" action="/journal/delete/{{ t.id }}" onsubmit="return confirm('Delete this trade?');" style="margin-top: 8px;">
+                <button type="submit" class="secondary" style="width: 100%; color: var(--red);">Delete</button>
+              </form>
+            </div>
+          </details>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+
+{% if closed_trades %}
+<h3 class="section-title" style="margin-top: 22px;"><i data-lucide="archive"></i>Closed trades <span class="badge">{{ closed_trades|length }}</span></h3>
+<div class="card" style="padding: 0; overflow-x: auto;">
+  <table class="trade-table">
+    <thead>
+      <tr><th>Ticker</th><th>Qty</th><th>Entry</th><th>Exit</th><th style="text-align:right;">P&L %</th><th style="text-align:right;">P&L ₹</th><th>Days</th><th>Verdict @ entry</th><th>Accuracy</th><th></th></tr>
+    </thead>
+    <tbody>
+      {% for t in closed_trades %}
+      <tr>
+        <td><a href="/stock/{{ t.ticker }}"><strong>{{ t.ticker }}</strong></a></td>
+        <td>{{ t.qty }}</td>
+        <td>₹{{ '{:,.2f}'.format(t.entry_price) }}<br><span style="color: var(--muted); font-size: 11px;">{{ t.entry_date }}</span></td>
+        <td>₹{{ '{:,.2f}'.format(t.exit_price) }}<br><span style="color: var(--muted); font-size: 11px;">{{ t.exit_date }}</span></td>
+        <td style="text-align:right;" class="{% if t.pnl_pct > 0 %}pos{% elif t.pnl_pct < 0 %}neg{% endif %}">{{ '{:+.2f}'.format(t.pnl_pct) }}%</td>
+        <td style="text-align:right;" class="{% if t.pnl_total > 0 %}pos{% elif t.pnl_total < 0 %}neg{% endif %}">₹{{ '{:+,.0f}'.format(t.pnl_total) }}</td>
+        <td>{{ t.days_held }}d</td>
+        <td>{% if t.verdict_at_entry %}<span class="verdict {{ t.verdict_at_entry }}">{{ t.verdict_at_entry }}</span>{% else %}<span class="neutral">—</span>{% endif %}</td>
+        <td>
+          {% set acc = t.get('verdict_accuracy') %}
+          {% if acc %}<span class="pill accuracy-{{ acc.color }}" title="{{ acc.label }}">{{ acc.label }}</span>
+          {% else %}<span class="neutral">—</span>{% endif %}
+        </td>
+        <td><form method="post" action="/journal/delete/{{ t.id }}" onsubmit="return confirm('Delete?');"><button class="secondary" style="font-size: 11px;">×</button></form></td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+
+{% if not trades %}
+<div class="card" style="text-align: center; padding: 40px;">
+  <i data-lucide="book-open" style="width: 32px; height: 32px; color: var(--muted);"></i>
+  <h2 style="color: var(--muted); margin-top: 12px;">No trades logged yet</h2>
+  <p style="color: var(--muted);">Use "Add a trade" above to log your first position.</p>
+</div>
+{% endif %}
+
+<style>
+  .trade-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  .trade-table th { background: var(--panel-soft); padding: 10px 12px; text-align: left; color: var(--muted); font-weight: 500; border-bottom: 1px solid var(--border); }
+  .trade-table td { padding: 10px 12px; border-bottom: 1px solid var(--border-soft); vertical-align: top; }
+  .trade-table tbody tr:hover { background: var(--panel-soft); }
+  .accuracy-pos { background: var(--green-soft); color: var(--green); border: 1px solid transparent; display: inline-flex; align-items: center; gap: 4px; }
+  .accuracy-neg { background: var(--red-soft); color: var(--red); border: 1px solid transparent; display: inline-flex; align-items: center; gap: 4px; }
+  .accuracy-neutral { background: var(--panel-soft); color: var(--muted); border: 1px solid var(--border); display: inline-flex; align-items: center; gap: 4px; }
+</style>
+{% endblock %}

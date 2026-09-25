@@ -1,0 +1,380 @@
+{% extends "base.html" %}
+{% block content %}
+
+<div class="topbar">
+  <div>
+    <h2 style="margin: 0;">{{ universe_label or (universe_name | upper) }} Screener</h2>
+    <div class="sub" style="margin: 4px 0 0;">{{ cached_count }} of {{ universe_total }} stocks cached
+      {% if status.finished_at and not status.running %}· last refresh {{ status.elapsed_sec }}s{% endif %}
+      {% if status.running %}· <span style="color: var(--yellow);">refreshing {{ status.done }}/{{ status.total }} ({{ status.current }})</span>{% endif %}
+    </div>
+  </div>
+  <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
+    {% if universes %}
+      {% for u in universes %}
+        <a href="/screener?universe={{ u.name }}" class="uni-tab{% if u.active %} active{% endif %}"
+           {% if u.active %}aria-current="page"{% endif %}>
+          {{ u.label or (u.name | upper) }} <span style="opacity: 0.7;">({{ u.cached }})</span>
+        </a>
+      {% endfor %}
+    {% endif %}
+    <button onclick="refresh()" class="secondary"><i data-lucide="refresh-cw"></i>{% if status.running %}Running...{% else %}Refresh{% endif %}</button>
+    <a href="/" class="nav-link"><i data-lucide="layout-dashboard"></i>Home</a>
+  </div>
+</div>
+
+<style>
+  .uni-tab { padding: 6px 12px; border-radius: 6px; text-decoration: none; color: var(--muted); border: 1px solid var(--border); font-size: 13px; background: var(--panel); }
+  .uni-tab.active { background: var(--accent); color: #ffffff; border-color: var(--accent); font-weight: 600; }
+  .uni-tab:hover { text-decoration: none; }
+  .uni-tab:not(.active):hover { color: var(--text); border-color: var(--muted); background: var(--panel-soft); }
+</style>
+
+<div class="grid" style="grid-template-columns: repeat(5, 1fr); gap: 8px; margin-bottom: 14px;">
+  {% for v, c in counts.items() %}
+  <div class="card" style="margin: 0; padding: 10px 14px; cursor: pointer;" onclick="filterVerdict('{{ v }}')">
+    <div><span class="verdict {{ v }}">{{ v }}</span></div>
+    <div style="font-size: 22px; font-weight: 600; margin-top: 6px;">{{ c }}</div>
+  </div>
+  {% endfor %}
+</div>
+
+<div class="card" style="padding: 14px 16px;">
+  <div class="filter-grid">
+    <div class="search-wrap">
+      <i data-lucide="search" class="search-i"></i>
+      <input type="text" id="search" placeholder="Search ticker or name..." aria-label="Search ticker or company name" oninput="applyFilters()">
+    </div>
+    <div class="multi-filter" id="verdict-filter-wrap">
+      <button type="button" class="multi-toggle" onclick="toggleMulti('verdict-filter-wrap')">
+        <i data-lucide="chevron-down"></i> <span class="multi-label">All verdicts</span>
+      </button>
+      <div class="multi-pop">
+        {% for v in ['BUY','ACCUMULATE','HOLD','REDUCE','AVOID'] %}
+        <label class="multi-opt"><input type="checkbox" class="verdict-cb" value="{{ v }}" onchange="applyFilters(); updateMultiLabel('verdict-filter-wrap', 'verdict-cb', 'All verdicts')"> <span class="verdict {{ v }}">{{ v }}</span></label>
+        {% endfor %}
+      </div>
+    </div>
+    <div class="multi-filter" id="sector-filter-wrap">
+      <button type="button" class="multi-toggle" onclick="toggleMulti('sector-filter-wrap')">
+        <i data-lucide="chevron-down"></i> <span class="multi-label">All sectors</span>
+      </button>
+      <div class="multi-pop" style="max-height: 320px; overflow-y: auto;">
+        {% for s in sectors %}
+        <label class="multi-opt"><input type="checkbox" class="sector-cb" value="{{ s }}" onchange="applyFilters(); updateMultiLabel('sector-filter-wrap', 'sector-cb', 'All sectors')"> {{ s }}</label>
+        {% endfor %}
+      </div>
+    </div>
+    <select id="rsi-filter" onchange="applyFilters()" style="min-width: 130px;">
+      <option value="">RSI: all</option>
+      <option value="oversold">RSI: Oversold (&lt;30)</option>
+      <option value="weak">RSI: Weak (30-45)</option>
+      <option value="normal">RSI: Normal (45-65)</option>
+      <option value="strong">RSI: Strong (65-75)</option>
+      <option value="overbought">RSI: Overbought (&gt;75)</option>
+    </select>
+    <div class="filter-actions">
+      <span id="row-count"></span>
+      <button type="button" class="secondary" onclick="resetFilters()" style="font-size: 12px;"><i data-lucide="x"></i>Clear</button>
+    </div>
+  </div>
+
+  <div class="filter-grid filter-grid-row2">
+    <label class="num-filter">PE
+      <input type="number" id="pe-min" placeholder="min" oninput="applyFilters()">
+      <span class="num-sep">–</span>
+      <input type="number" id="pe-max" placeholder="max" oninput="applyFilters()">
+    </label>
+    <label class="num-filter">ROE %
+      <input type="number" id="roe-min" placeholder="min" oninput="applyFilters()">
+    </label>
+    <label class="num-filter">Min upside %
+      <input type="number" id="upside-min" placeholder="10" oninput="applyFilters()">
+    </label>
+    <label class="num-filter">Min score
+      <input type="number" step="0.1" id="score-min" placeholder="0.5" oninput="applyFilters()">
+    </label>
+    <label class="check-filter"><input type="checkbox" id="positive-only" onchange="applyFilters()"> Positive only</label>
+    <label class="check-filter"><input type="checkbox" id="telegram-only" onchange="applyFilters()"> <i data-lucide="message-square-text" style="color: var(--purple); width: 13px; height: 13px;"></i> With Telegram</label>
+  </div>
+</div>
+
+<style>
+  .filter-grid {
+    display: flex; flex-wrap: wrap; gap: 10px; align-items: center;
+  }
+  .filter-grid-row2 {
+    margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--border-soft);
+    row-gap: 8px; column-gap: 18px;
+  }
+  .search-wrap { flex: 1 1 240px; min-width: 200px; position: relative; }
+  .search-wrap input { width: 100%; padding-left: 34px; }
+  .search-i { position: absolute; left: 10px; top: 50%; transform: translateY(-50%); color: var(--muted); pointer-events: none; width: 16px !important; height: 16px !important; }
+  .filter-actions { display: inline-flex; align-items: center; gap: 10px; margin-left: auto; color: var(--muted); font-size: 13px; white-space: nowrap; }
+  .num-filter { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); font-size: 12px; white-space: nowrap; }
+  .num-filter input { padding: 5px 8px; font-size: 12px; border-radius: 4px; width: 64px; }
+  .num-filter .num-sep { color: var(--muted-soft); }
+  .check-filter { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); font-size: 12px; white-space: nowrap; }
+  .multi-filter { position: relative; display: inline-block; }
+  .multi-toggle { background: var(--panel); border: 1px solid var(--border); color: var(--text); padding: 8px 12px; font-size: 13px; border-radius: 6px; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; box-shadow: none; font-weight: 400; min-width: 140px; max-width: 200px; }
+  .multi-toggle:hover { background: var(--panel-soft); border-color: var(--muted); }
+  .multi-toggle.has-selection { color: var(--accent); border-color: var(--accent); background: var(--accent-soft); font-weight: 600; }
+  .multi-toggle .multi-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; text-align: left; }
+  .multi-pop { display: none; position: absolute; top: calc(100% + 4px); left: 0; background: var(--panel); border: 1px solid var(--border); border-radius: 6px; padding: 6px; z-index: 30; box-shadow: var(--shadow-md); min-width: 200px; }
+  .multi-filter.open .multi-pop { display: block; }
+  .multi-opt { display: flex; align-items: center; gap: 8px; padding: 6px 10px; cursor: pointer; border-radius: 4px; font-size: 13px; }
+  .multi-opt:hover { background: var(--panel-soft); }
+  @media (max-width: 760px) {
+    .filter-actions { margin-left: 0; width: 100%; justify-content: space-between; }
+  }
+</style>
+
+<div class="card" style="padding: 0; overflow-x: auto;">
+  <table id="dashboard-table" style="width: 100%; border-collapse: collapse; font-size: 13px;">
+    <thead>
+      <tr style="background: var(--panel-soft);">
+        <th data-key="verdict_rank" data-num="1">Verdict</th>
+        <th data-key="ticker">Ticker</th>
+        <th data-key="name">Name</th>
+        <th>30d</th>
+        <th data-key="sector">Sector</th>
+        <th data-key="combined_score" data-num="1" style="text-align: right;">Score</th>
+        <th data-key="last_close" data-num="1" style="text-align: right;">LTP</th>
+        <th data-key="upside_pct" data-num="1" style="text-align: right;">Upside %</th>
+        <th data-key="downside_pct" data-num="1" style="text-align: right;">Stop %</th>
+        <th data-key="rsi_14" data-num="1" style="text-align: right;">RSI</th>
+        <th data-key="trailing_pe" data-num="1" style="text-align: right;">PE</th>
+        <th data-key="roe" data-num="1" style="text-align: right;">ROE</th>
+        <th data-key="tg_mentions" data-num="1" style="text-align: right;" title="Telegram mentions"><i data-lucide="message-square-text" style="width: 14px; height: 14px;"></i></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for r in rows %}
+      <tr data-verdict="{{ r.verdict }}" data-sector="{{ r.sector }}" data-ticker="{{ r.ticker }}" data-name="{{ r.name|lower }}"
+          data-positive="{% if r.combined_score > 0 %}1{% else %}0{% endif %}"
+          data-pe="{{ r.trailing_pe if r.trailing_pe is not none else '' }}"
+          data-roe="{{ (r.roe * 100) if r.roe is not none else '' }}"
+          data-upside="{{ r.upside_pct if r.upside_pct is not none else '' }}"
+          data-score="{{ r.combined_score }}"
+          data-rsi="{{ r.rsi_14 }}"
+          data-mentions="{{ r.tg_mentions or 0 }}"
+          onclick="window.location='/stock/{{ r.ticker }}'" style="cursor: pointer;">
+        <td><span class="verdict {{ r.verdict }}">{{ r.verdict }}</span></td>
+        <td><strong>{{ r.ticker }}</strong></td>
+        <td>{{ r.name[:35] }}</td>
+        <td>
+          {# points + color precomputed in Python (web._spark_svg_fields) — doing
+             this in Jinja cost ~6s/page at 1,900 rows #}
+          {% if r.spark_points %}
+            <svg width="60" height="20" viewBox="0 0 60 20" style="display: block;" aria-hidden="true">
+              <polyline fill="none" stroke="{{ r.spark_color }}" stroke-width="1.3" points="{{ r.spark_points }}"/>
+            </svg>
+          {% endif %}
+        </td>
+        <td style="color: var(--muted); font-size: 12px;">{{ r.sector }}</td>
+        <td style="text-align: right;" data-val="{{ r.combined_score }}">
+          <span class="{% if r.combined_score > 0 %}pos{% elif r.combined_score < 0 %}neg{% else %}neutral{% endif %}" style="font-weight: 600;">
+            {{ '{:+.2f}'.format(r.combined_score) }}
+          </span>
+        </td>
+        <td style="text-align: right;" data-val="{{ r.last_close }}">{{ r.last_close | inr_full }}</td>
+        <td style="text-align: right;" data-val="{{ r.upside_pct or 0 }}">
+          {% if r.upside_pct is not none %}<span class="pos">{{ '{:+.1f}'.format(r.upside_pct) }}%</span>{% else %}<span class="neutral">—</span>{% endif %}
+        </td>
+        <td style="text-align: right;" data-val="{{ r.downside_pct }}"><span class="neg">{{ '{:+.1f}'.format(r.downside_pct) }}%</span></td>
+        <td style="text-align: right;" data-val="{{ r.rsi_14 }}">
+          <span class="{% if r.rsi_14 > 70 %}neg{% elif r.rsi_14 < 30 %}pos{% else %}neutral{% endif %}">{{ '{:.0f}'.format(r.rsi_14) }}</span>
+        </td>
+        <td style="text-align: right;" data-val="{{ r.trailing_pe or 0 }}">{% if r.trailing_pe %}{{ '{:.1f}'.format(r.trailing_pe) }}{% else %}—{% endif %}</td>
+        <td style="text-align: right;" data-val="{{ r.roe or 0 }}">{% if r.roe is not none %}{{ '{:.1f}'.format(r.roe * 100) }}%{% else %}—{% endif %}</td>
+        <td style="text-align: right;" data-val="{{ r.tg_mentions }}">{% if r.tg_mentions > 0 %}{{ r.tg_mentions }}{% else %}<span class="neutral">—</span>{% endif %}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% if not rows %}
+  <div style="padding: 40px; text-align: center; color: var(--muted);">
+    No cached results yet. Click <strong>Refresh</strong> above to analyze the universe.
+  </div>
+  {% endif %}
+</div>
+
+<style>
+  #dashboard-table th { padding: 10px 12px; text-align: left; cursor: pointer; user-select: none; color: var(--muted); font-weight: 500; border-bottom: 1px solid var(--border); }
+  #dashboard-table th:hover { color: var(--text); }
+  #dashboard-table th.sorted-asc::after { content: ' ▲'; color: var(--accent); }
+  #dashboard-table th.sorted-desc::after { content: ' ▼'; color: var(--accent); }
+  #dashboard-table td { padding: 8px 12px; border-bottom: 1px solid var(--border); }
+  #dashboard-table tbody tr:hover { background: var(--panel-soft); }
+  /* Performance: tell the browser each row paints independently — avoids
+     re-laying-out the whole 500-row table on hover/scroll/filter changes. */
+  #dashboard-table tbody tr { contain: layout style paint; content-visibility: auto; contain-intrinsic-size: 0 40px; }
+  #dashboard-table { table-layout: auto; }
+  /* Defer hover-state work to the GPU */
+  #dashboard-table tbody tr { will-change: background; }
+</style>
+
+<script>
+const verdictRank = { 'BUY': 5, 'ACCUMULATE': 4, 'HOLD': 3, 'REDUCE': 2, 'AVOID': 1 };
+
+function rsiBucket(rsi) {
+  if (rsi < 30) return 'oversold';
+  if (rsi < 45) return 'weak';
+  if (rsi < 65) return 'normal';
+  if (rsi < 75) return 'strong';
+  return 'overbought';
+}
+
+function numOrNull(id) {
+  const v = document.getElementById(id).value.trim();
+  if (v === '') return null;
+  const n = parseFloat(v);
+  return isNaN(n) ? null : n;
+}
+
+function getCheckedValues(cls) {
+  return Array.from(document.querySelectorAll('.' + cls + ':checked')).map(c => c.value);
+}
+
+function toggleMulti(wrapId) {
+  document.querySelectorAll('.multi-filter').forEach(el => {
+    if (el.id !== wrapId) el.classList.remove('open');
+  });
+  document.getElementById(wrapId).classList.toggle('open');
+}
+
+function updateMultiLabel(wrapId, cls, allLabel) {
+  const wrap = document.getElementById(wrapId);
+  const vals = getCheckedValues(cls);
+  const btn = wrap.querySelector('.multi-toggle');
+  const lbl = wrap.querySelector('.multi-label');
+  if (vals.length === 0) { lbl.textContent = allLabel; btn.classList.remove('has-selection'); }
+  else if (vals.length === 1) { lbl.textContent = vals[0]; btn.classList.add('has-selection'); }
+  else { lbl.textContent = vals.length + ' selected'; btn.classList.add('has-selection'); }
+}
+
+document.addEventListener('click', e => {
+  if (!e.target.closest('.multi-filter')) {
+    document.querySelectorAll('.multi-filter').forEach(el => el.classList.remove('open'));
+  }
+});
+
+function applyFilters() {
+  const q = document.getElementById('search').value.toLowerCase().trim();
+  const verdicts = getCheckedValues('verdict-cb');
+  const sectors = getCheckedValues('sector-cb');
+  const rsiBkt = document.getElementById('rsi-filter').value;
+  const peMin = numOrNull('pe-min');
+  const peMax = numOrNull('pe-max');
+  const roeMin = numOrNull('roe-min');
+  const upMin = numOrNull('upside-min');
+  const scMin = numOrNull('score-min');
+  const pos = document.getElementById('positive-only').checked;
+  const tgOnly = document.getElementById('telegram-only').checked;
+
+  let shown = 0;
+  document.querySelectorAll('#dashboard-table tbody tr').forEach(tr => {
+    const d = tr.dataset;
+    const ticker = d.ticker.toLowerCase();
+    const name = d.name;
+    const pe = d.pe === '' ? null : parseFloat(d.pe);
+    const roe = d.roe === '' ? null : parseFloat(d.roe);
+    const upside = d.upside === '' ? null : parseFloat(d.upside);
+    const score = parseFloat(d.score);
+    const rsi = parseFloat(d.rsi);
+    const mentions = parseInt(d.mentions || '0', 10);
+
+    const matches =
+      (!q || ticker.includes(q) || name.includes(q))
+      && (verdicts.length === 0 || verdicts.includes(d.verdict))
+      && (sectors.length === 0 || sectors.includes(d.sector))
+      && (!rsiBkt || rsiBucket(rsi) === rsiBkt)
+      && (peMin === null || (pe !== null && pe >= peMin))
+      && (peMax === null || (pe !== null && pe <= peMax))
+      && (roeMin === null || (roe !== null && roe >= roeMin))
+      && (upMin === null || (upside !== null && upside >= upMin))
+      && (scMin === null || score >= scMin)
+      && (!pos || d.positive === '1')
+      && (!tgOnly || mentions > 0);
+
+    tr.style.display = matches ? '' : 'none';
+    if (matches) shown++;
+  });
+  document.getElementById('row-count').textContent = shown + ' shown';
+}
+
+function filterVerdict(v) {
+  // Single-click filter from the count cards: reset and check just this one
+  document.querySelectorAll('.verdict-cb').forEach(c => c.checked = (c.value === v));
+  updateMultiLabel('verdict-filter-wrap', 'verdict-cb', 'All verdicts');
+  applyFilters();
+}
+
+function resetFilters() {
+  ['search','pe-min','pe-max','roe-min','upside-min','score-min'].forEach(id => {
+    document.getElementById(id).value = '';
+  });
+  document.getElementById('rsi-filter').value = '';
+  document.querySelectorAll('.verdict-cb, .sector-cb').forEach(c => c.checked = false);
+  updateMultiLabel('verdict-filter-wrap', 'verdict-cb', 'All verdicts');
+  updateMultiLabel('sector-filter-wrap', 'sector-cb', 'All sectors');
+  document.getElementById('positive-only').checked = false;
+  document.getElementById('telegram-only').checked = false;
+  applyFilters();
+}
+
+document.querySelectorAll('#dashboard-table th').forEach(th => {
+  th.addEventListener('click', () => {
+    const key = th.dataset.key;
+    if (!key) return;
+    const isNum = th.dataset.num === '1';
+    const tbody = document.querySelector('#dashboard-table tbody');
+    const rows = Array.from(tbody.querySelectorAll('tr'));
+    const desc = !th.classList.contains('sorted-desc');
+    document.querySelectorAll('#dashboard-table th').forEach(h => h.classList.remove('sorted-asc', 'sorted-desc'));
+    th.classList.add(desc ? 'sorted-desc' : 'sorted-asc');
+    rows.sort((a, b) => {
+      let av, bv;
+      const aIdx = Array.from(th.parentElement.children).indexOf(th);
+      if (key === 'verdict_rank') {
+        av = verdictRank[a.dataset.verdict] || 0; bv = verdictRank[b.dataset.verdict] || 0;
+      } else if (key === 'ticker') { av = a.dataset.ticker; bv = b.dataset.ticker; }
+      else if (key === 'name') { av = a.dataset.name; bv = b.dataset.name; }
+      else if (key === 'sector') { av = a.dataset.sector; bv = b.dataset.sector; }
+      else {
+        av = parseFloat(a.children[aIdx].dataset.val); bv = parseFloat(b.children[aIdx].dataset.val);
+        if (isNaN(av)) av = 0; if (isNaN(bv)) bv = 0;
+      }
+      if (av < bv) return desc ? 1 : -1;
+      if (av > bv) return desc ? -1 : 1;
+      return 0;
+    });
+    rows.forEach(r => tbody.appendChild(r));
+  });
+});
+
+function refresh() {
+  fetch('/api/refresh?universe={{ universe_name }}', { method: 'POST' })
+    .then(r => r.json()).then(d => {
+      if (d.started) pollStatus();
+      else alert(d.reason || 'Could not start refresh');
+    });
+}
+function pollStatus() {
+  fetch('/api/status').then(r => r.json()).then(s => {
+    if (s.running) {
+      document.querySelector('.sub').innerHTML =
+        '{{ cached_count }} of {{ universe_total }} cached · <span style="color: var(--yellow);">refreshing ' + s.done + '/' + s.total + ' (' + (s.current || '—') + ')</span>';
+      setTimeout(pollStatus, 1500);
+    } else {
+      window.location.reload();
+    }
+  });
+}
+{% if status.running %}pollStatus();{% endif %}
+applyFilters();
+
+// Default sort by verdict rank descending (BUYs at top)
+document.querySelector('#dashboard-table th[data-key="verdict_rank"]').click();
+</script>
+{% endblock %}

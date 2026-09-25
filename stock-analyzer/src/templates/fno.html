@@ -1,0 +1,229 @@
+{% extends "base.html" %}
+{% block title %}F&O — {{ symbol }} · Stock Analyzer{% endblock %}
+{% block content %}
+<style>
+  .fno-tabs { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 18px; }
+  .fno-tab { padding: 7px 14px; border-radius: var(--radius-sm); font-size: 13px; font-weight: 600;
+             color: var(--muted); background: var(--panel); border: 1px solid var(--border); }
+  .fno-tab:hover { color: var(--text); text-decoration: none; background: var(--panel-soft); }
+  .fno-tab.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+
+  .bias { display: inline-flex; align-items: center; gap: 6px; padding: 5px 14px; border-radius: 6px;
+          font-weight: 700; font-size: 14px; letter-spacing: 0.5px; }
+  .bias.BULLISH     { background: var(--green-soft);  color: var(--green); }
+  .bias.BEARISH     { background: var(--red-soft);    color: var(--red); }
+  .bias.NEUTRAL     { background: var(--panel-soft);  color: var(--muted); }
+  .bias.RANGE-BOUND { background: var(--purple-soft); color: var(--purple); }
+
+  .fno-metrics { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; }
+  .fno-metric { background: var(--panel-soft); border-radius: var(--radius-sm); padding: 10px 12px; }
+  .fno-metric .k { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; }
+  .fno-metric .v { font-size: 16px; font-weight: 600; margin-top: 2px; }
+  .fno-metric .d { font-size: 11px; color: var(--muted); }
+
+  .walls { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+  @media (max-width: 640px) { .walls { grid-template-columns: 1fr; } }
+  .wall-row { display: flex; align-items: center; gap: 8px; margin: 6px 0; font-size: 13px; }
+  .wall-row .strike { min-width: 74px; font-weight: 600; }
+  .wall-row .bar-track { flex: 1; height: 14px; background: var(--panel-soft); border-radius: 4px; overflow: hidden; }
+  .wall-row .bar { height: 100%; border-radius: 4px; }
+  .wall-row .oi { min-width: 90px; text-align: right; color: var(--muted); font-size: 12px; }
+
+  .strat { border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 12px 14px; margin-top: 10px; }
+  .strat .legs { display: flex; gap: 8px; flex-wrap: wrap; margin: 8px 0; }
+  .strat .leg { background: var(--panel-soft); border: 1px solid var(--border); border-radius: 4px;
+                padding: 3px 10px; font-size: 12px; font-weight: 600; }
+  .strat .leg.buy  { color: var(--green); }
+  .strat .leg.sell { color: var(--red); }
+  .strat .why  { font-size: 13px; color: var(--text-soft); }
+  .strat .risk { font-size: 12px; color: var(--muted); margin-top: 6px; }
+
+  .chain-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+  .chain-table th { color: var(--muted); font-weight: 600; padding: 6px 8px; border-bottom: 1px solid var(--border);
+                    text-align: right; white-space: nowrap; }
+  .chain-table td { padding: 5px 8px; border-bottom: 1px solid var(--border-soft); text-align: right; white-space: nowrap; }
+  .chain-table .strike-col { font-weight: 700; background: var(--panel-soft); text-align: center; }
+  .chain-table tr.atm td { background: var(--accent-soft); }
+  .oi-cell { position: relative; min-width: 110px; }
+  .oi-cell .oi-bar { position: absolute; top: 15%; height: 70%; opacity: 0.22; border-radius: 3px; }
+  .oi-cell.ce .oi-bar { right: 0; background: var(--red-bright); }
+  .oi-cell.pe .oi-bar { left: 0; background: var(--green-bright); }
+  .oi-cell span { position: relative; }
+</style>
+
+<div class="fno-tabs" role="tablist">
+  {% for s, label in symbols %}
+  <a href="/fno/{{ s }}" class="fno-tab {% if s == symbol %}active{% endif %}">{{ label }}</a>
+  {% endfor %}
+</div>
+
+{% if a %}
+<div class="card">
+  <div class="card-head">
+    <div>
+      <h2 style="margin-bottom:2px;">{{ a.label }} <span class="pill">{{ a.source | upper }}</span>
+        {% if a.stale %}<span class="pill" style="background:var(--yellow-soft);color:var(--yellow);">STALE DATA</span>{% endif %}
+      </h2>
+      <div class="sub" style="margin-bottom:0;">
+        Spot <b>{{ "{:,.2f}".format(a.spot) }}</b>
+        {% if a.spot_change_pct is not none %}
+          <span class="{{ 'pos' if a.spot_change_pct >= 0 else 'neg' }}">{{ "%+.2f" | format(a.spot_change_pct) }}%</span>
+        {% endif %}
+        · as of {{ a.as_of or "—" }}
+      </div>
+    </div>
+    <div style="text-align:right;">
+      <span class="bias {{ a.bias }}">{{ a.bias }}</span>
+      <div class="sub" style="margin:4px 0 0;">score {{ "%+.2f" | format(a.score) }} · confidence {{ a.confidence }}</div>
+    </div>
+  </div>
+
+  <div class="fno-metrics" style="margin-top:14px;">
+    <div class="fno-metric"><div class="k">PCR (near ATM)</div>
+      <div class="v">{{ a.pcr_oi_band if a.pcr_oi_band is not none else "—" }}</div>
+      <div class="d">total {{ a.pcr_oi if a.pcr_oi is not none else "—" }} · vol {{ a.pcr_volume if a.pcr_volume is not none else "—" }}</div></div>
+    <div class="fno-metric"><div class="k">Max pain</div>
+      <div class="v">{{ "{:,.0f}".format(a.max_pain) if a.max_pain else "—" }}</div>
+      <div class="d">{% if a.max_pain_distance_pct is not none %}spot {{ "%+.2f" | format(a.max_pain_distance_pct) }}% vs pain{% endif %}</div></div>
+    <div class="fno-metric"><div class="k">ATM IV</div>
+      <div class="v">{{ a.atm_iv if a.atm_iv is not none else "—" }}{% if a.atm_iv is not none %}%{% endif %}</div>
+      <div class="d">{% if a.iv_skew is not none %}skew {{ "%+.1f" | format(a.iv_skew) }} (PE−CE){% endif %}</div></div>
+    <div class="fno-metric"><div class="k">Expected move</div>
+      <div class="v">{% if a.expected_move_pct is not none %}±{{ a.expected_move_pct }}%{% else %}—{% endif %}</div>
+      <div class="d">{% if a.straddle_price %}straddle ₹{{ "{:,.0f}".format(a.straddle_price) }}{% if a.expected_move_daily_pct %} · ±{{ a.expected_move_daily_pct }}%/day{% endif %}{% endif %}</div></div>
+    <div class="fno-metric"><div class="k">India VIX</div>
+      <div class="v">{{ a.vix if a.vix is not none else "—" }}</div>
+      <div class="d">volatility gauge</div></div>
+    <div class="fno-metric"><div class="k">Expiry</div>
+      <div class="v" style="font-size:14px;">{{ a.expiry or "—" }}</div>
+      <div class="d">{% if a.days_to_expiry is not none %}{{ a.days_to_expiry }}d away{% endif %} · lot {{ a.lot }}</div></div>
+  </div>
+
+  {% if expiries and expiries | length > 1 %}
+  <div style="margin-top:12px;">
+    <form method="get" action="/fno/{{ symbol }}" class="form-row" style="margin-bottom:0;">
+      <label>Expiry
+        <select name="expiry" onchange="this.form.submit()">
+          {% for e in expiries %}
+          <option value="{{ e }}" {% if (sel_expiry or expiries[0]) == e %}selected{% endif %}>{{ e }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <a class="btn secondary" href="/fno/{{ symbol }}?refresh=1"><i data-lucide="refresh-cw"></i>Refresh</a>
+    </form>
+  </div>
+  {% endif %}
+</div>
+
+<div class="card">
+  <h2><i data-lucide="layers"></i> OI walls — where writers have drawn the lines</h2>
+  <div class="walls">
+    <div>
+      <h3 class="pos">Support (PE OI below spot)</h3>
+      {% for w in a.supports %}
+      <div class="wall-row">
+        <span class="strike">{{ "{:,.0f}".format(w.strike) }}</span>
+        <div class="bar-track"><div class="bar" style="width: {{ (w.oi / max_wall_oi * 100) | round(1) }}%; background: var(--green-bright);"></div></div>
+        <span class="oi">{{ "{:,.0f}".format(w.oi / 100000) }}L · {{ "%+.1f" | format(w.distance_pct) }}%</span>
+      </div>
+      {% else %}<div class="sub">No put OI concentration found.</div>{% endfor %}
+    </div>
+    <div>
+      <h3 class="neg">Resistance (CE OI above spot)</h3>
+      {% for w in a.resistances %}
+      <div class="wall-row">
+        <span class="strike">{{ "{:,.0f}".format(w.strike) }}</span>
+        <div class="bar-track"><div class="bar" style="width: {{ (w.oi / max_wall_oi * 100) | round(1) }}%; background: var(--red-bright);"></div></div>
+        <span class="oi">{{ "{:,.0f}".format(w.oi / 100000) }}L · {{ "%+.1f" | format(w.distance_pct) }}%</span>
+      </div>
+      {% else %}<div class="sub">No call OI concentration found.</div>{% endfor %}
+    </div>
+  </div>
+  <div class="rationale" style="margin-top:14px;">
+    <b>Today's OI flow:</b> {{ a.oi_flow }}
+    <span class="pill" style="margin-left:8px;">CE ΔOI {{ "{:+,}".format(a.ce_oi_change) }}</span>
+    <span class="pill">PE ΔOI {{ "{:+,}".format(a.pe_oi_change) }}</span>
+  </div>
+</div>
+
+<div class="card">
+  <h2><i data-lucide="list-checks"></i> Why this signal</h2>
+  {% if a.rationale %}
+  <div class="rationale"><ul>{% for line in a.rationale %}<li>{{ line }}</li>{% endfor %}</ul></div>
+  {% endif %}
+  {% for w in a.cautions %}
+  <div class="alert"><i data-lucide="alert-triangle"></i>{{ w }}</div>
+  {% endfor %}
+</div>
+
+<div class="card">
+  <h2><i data-lucide="git-branch"></i> Suggested structures <span class="pill">1 lot = {{ a.lot }}</span></h2>
+  {% for st in a.strategies %}
+  <div class="strat">
+    <b>{{ st.name }}</b> <span class="pill">IV {{ st.iv_state }}</span>
+    {% if st.legs %}
+    <div class="legs">
+      {% for leg in st.legs %}
+      <span class="leg {{ 'buy' if leg.startswith('BUY') else 'sell' }}">{{ leg }}</span>
+      {% endfor %}
+    </div>
+    {% endif %}
+    <div class="why">{{ st.rationale }}</div>
+    <div class="risk"><i data-lucide="shield-alert"></i> {{ st.risk }}</div>
+  </div>
+  {% endfor %}
+</div>
+
+{% if chain_rows %}
+<div class="card">
+  <h2><i data-lucide="table"></i> Option chain — {{ a.expiry }} <span class="pill">±8 strikes</span></h2>
+  <div style="overflow-x:auto;">
+    <table class="chain-table">
+      <thead>
+        <tr>
+          <th class="neg" style="text-align:center;" colspan="4">CALLS</th>
+          <th style="text-align:center;">Strike</th>
+          <th class="pos" style="text-align:center;" colspan="4">PUTS</th>
+        </tr>
+        <tr>
+          <th>OI</th><th>ΔOI</th><th>IV</th><th>LTP</th>
+          <th></th>
+          <th>LTP</th><th>IV</th><th>ΔOI</th><th>OI</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in chain_rows %}
+        <tr {% if r.is_atm %}class="atm"{% endif %}>
+          <td class="oi-cell ce"><div class="oi-bar" style="width: {{ r.ce_bar }}%;"></div><span>{{ "{:,}".format(r.ce.oi) if r.ce and r.ce.oi else "—" }}</span></td>
+          <td class="{{ 'pos' if r.ce and (r.ce.oi_change or 0) > 0 else 'neg' if r.ce and (r.ce.oi_change or 0) < 0 else '' }}">{{ "{:+,}".format(r.ce.oi_change) if r.ce and r.ce.oi_change else "—" }}</td>
+          <td>{{ r.ce.iv if r.ce and r.ce.iv else "—" }}</td>
+          <td>{{ "{:,.1f}".format(r.ce.ltp) if r.ce and r.ce.ltp else "—" }}</td>
+          <td class="strike-col">{{ "{:,.0f}".format(r.strike) }}</td>
+          <td>{{ "{:,.1f}".format(r.pe.ltp) if r.pe and r.pe.ltp else "—" }}</td>
+          <td>{{ r.pe.iv if r.pe and r.pe.iv else "—" }}</td>
+          <td class="{{ 'pos' if r.pe and (r.pe.oi_change or 0) > 0 else 'neg' if r.pe and (r.pe.oi_change or 0) < 0 else '' }}">{{ "{:+,}".format(r.pe.oi_change) if r.pe and r.pe.oi_change else "—" }}</td>
+          <td class="oi-cell pe"><div class="oi-bar" style="width: {{ r.pe_bar }}%;"></div><span>{{ "{:,}".format(r.pe.oi) if r.pe and r.pe.oi else "—" }}</span></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <div class="sub" style="margin:10px 0 0;">Green bars = put OI (support-side writing), red bars = call OI (resistance-side writing). Highlighted row = ATM.</div>
+</div>
+{% endif %}
+
+{% else %}
+<div class="card">
+  <h2>{{ symbol }} — option chain unavailable</h2>
+  <div class="errors">
+    Could not reach the exchange API and no cached chain exists yet.
+    {% if symbol == "SENSEX" %}
+    SENSEX options come from BSE's (less reliable) API — NIFTY / BANKNIFTY via NSE usually work.
+    {% else %}
+    NSE throttles by IP — retry in a minute, or open once during market hours to seed the cache.
+    {% endif %}
+  </div>
+  <a class="btn" href="/fno/{{ symbol }}?refresh=1"><i data-lucide="refresh-cw"></i>Retry</a>
+</div>
+{% endif %}
+{% endblock %}

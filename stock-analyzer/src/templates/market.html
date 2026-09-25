@@ -1,0 +1,264 @@
+{% extends "base.html" %}
+{% block content %}
+
+<div class="topbar">
+  <div>
+    <h2 style="margin: 0;">Market Pulse</h2>
+    <div class="sub" style="margin: 4px 0 0;">
+      Universe: <strong>{{ universe_name | upper }}</strong> · {{ cached_count }}/{{ universe_total }} stocks
+    </div>
+  </div>
+  <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
+    {% for u in universes %}
+      <a href="/market?universe={{ u.name }}" class="uni-tab{% if u.active %} active{% endif %}">{{ u.name | upper }}</a>
+    {% endfor %}
+  </div>
+</div>
+
+<style>
+  .uni-tab { padding: 6px 12px; border-radius: 6px; text-decoration: none; color: var(--muted); border: 1px solid var(--border); font-size: 13px; background: var(--panel); }
+  .uni-tab.active { background: var(--accent); color: #ffffff; border-color: var(--accent); font-weight: 600; }
+  .uni-tab:not(.active):hover { color: var(--text); border-color: var(--muted); background: var(--panel-soft); text-decoration: none; }
+  .uni-tab:hover { text-decoration: none; }
+</style>
+
+<!-- Index strip --------------------------------------------------------- -->
+<div class="grid" style="grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 12px; margin-bottom: 18px;">
+  {% for ix in indices %}
+  <div class="card" style="margin: 0; padding: 14px 18px;">
+    <div style="color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.7px; font-weight: 600;">{{ ix.name }}</div>
+    <div style="font-size: 22px; font-weight: 700; margin-top: 6px;">{{ '{:,.2f}'.format(ix.last) }}</div>
+    <div style="font-size: 13px; margin-top: 4px;" class="{% if ix.change > 0 %}pos{% elif ix.change < 0 %}neg{% else %}neutral{% endif %}">
+      {% if ix.change > 0 %}<i data-lucide="trending-up"></i>{% elif ix.change < 0 %}<i data-lucide="trending-down"></i>{% endif %}
+      {{ '{:+,.2f}'.format(ix.change) }} ({{ '{:+.2f}'.format(ix.change_pct) }}%)
+    </div>
+  </div>
+  {% endfor %}
+</div>
+
+<!-- Breadth + 52w extremes --------------------------------------------- -->
+<div class="grid" style="grid-template-columns: 2fr 1fr 1fr; gap: 14px; margin-bottom: 18px;">
+  <div class="card" style="padding: 16px 20px;">
+    <h2 style="margin: 0 0 12px; display: flex; align-items: center; gap: 6px;"><i data-lucide="bar-chart-horizontal"></i>Market breadth</h2>
+    {% set total = (agg.advances + agg.declines + agg.unchanged) or 1 %}
+    <div style="display: flex; height: 24px; border-radius: 4px; overflow: hidden; background: var(--panel-soft);">
+      <div style="width: {{ (agg.advances / total * 100) }}%; background: var(--green-bright); color: #fff; font-size: 11px; font-weight: 600; display: flex; align-items: center; justify-content: center;">{% if (agg.advances / total) > 0.05 %}{{ agg.advances }}{% endif %}</div>
+      <div style="width: {{ (agg.unchanged / total * 100) }}%; background: var(--muted-soft); color: #fff; font-size: 11px; display: flex; align-items: center; justify-content: center;">{% if (agg.unchanged / total) > 0.05 %}{{ agg.unchanged }}{% endif %}</div>
+      <div style="width: {{ (agg.declines / total * 100) }}%; background: var(--red-bright); color: #fff; font-size: 11px; font-weight: 600; display: flex; align-items: center; justify-content: center;">{% if (agg.declines / total) > 0.05 %}{{ agg.declines }}{% endif %}</div>
+    </div>
+    <div style="display: flex; justify-content: space-between; margin-top: 8px; font-size: 12px;">
+      <span><span class="pos">▲ {{ agg.advances }}</span> advancing</span>
+      <span class="neutral">{{ agg.unchanged }} flat</span>
+      <span><span class="neg">▼ {{ agg.declines }}</span> declining</span>
+    </div>
+    <div style="margin-top: 10px; font-size: 12px; color: var(--muted);">A/D ratio: <strong style="color: var(--text);">{{ agg.ad_ratio }}</strong> · {{ agg.breadth_total }} stocks tracked</div>
+  </div>
+  <div class="card" style="padding: 16px 20px; text-align: center;">
+    <div style="color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.7px; font-weight: 600;">Near 52w high</div>
+    <div style="font-size: 28px; font-weight: 700; margin-top: 8px; color: var(--green);">{{ agg.near_52w_high }}</div>
+    <div style="font-size: 11px; color: var(--muted);">within 3% of 52w high</div>
+  </div>
+  <div class="card" style="padding: 16px 20px; text-align: center;">
+    <div style="color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.7px; font-weight: 600;">Near 52w low</div>
+    <div style="font-size: 28px; font-weight: 700; margin-top: 8px; color: var(--red);">{{ agg.near_52w_low }}</div>
+    <div style="font-size: 11px; color: var(--muted);">within 3% of 52w low</div>
+  </div>
+</div>
+
+<!-- Sector performance bars -------------------------------------------- -->
+<div class="card">
+  <h2 style="margin: 0 0 14px; display: flex; align-items: center; gap: 6px;"><i data-lucide="layers"></i>Sector performance today</h2>
+  {% if agg.sector_perf %}
+    {% set max_abs = (agg.sector_perf | map(attribute='avg_change_pct') | map('abs') | max) or 1 %}
+    {% for s in agg.sector_perf %}
+      {% set pct = s.avg_change_pct %}
+      {% set pos_w = (pct / max_abs * 50) if pct > 0 else 0 %}
+      {% set neg_w = (-pct / max_abs * 50) if pct < 0 else 0 %}
+      <div style="display: grid; grid-template-columns: 180px 1fr 80px 80px; gap: 12px; align-items: center; padding: 6px 0; border-bottom: 1px solid var(--border-soft); font-size: 13px;">
+        <div style="color: var(--text); font-weight: 500;">{{ s.sector }}</div>
+        <div style="display: flex; height: 14px; align-items: center;">
+          <div style="flex: 1; display: flex; justify-content: flex-end; padding-right: 4px;">
+            {% if neg_w > 0 %}<div style="width: {{ neg_w }}%; height: 14px; background: var(--red-bright); border-radius: 2px;"></div>{% endif %}
+          </div>
+          <div style="width: 1px; height: 14px; background: var(--border);"></div>
+          <div style="flex: 1; padding-left: 4px;">
+            {% if pos_w > 0 %}<div style="width: {{ pos_w }}%; height: 14px; background: var(--green-bright); border-radius: 2px;"></div>{% endif %}
+          </div>
+        </div>
+        <div style="text-align: right; font-weight: 600;" class="{% if pct > 0 %}pos{% elif pct < 0 %}neg{% else %}neutral{% endif %}">{{ '{:+.2f}'.format(pct) }}%</div>
+        <div style="text-align: right; font-size: 11px; color: var(--muted);">
+          <span class="pos">▲{{ s.advancing }}</span> · <span class="neg">▼{{ s.declining }}</span>
+        </div>
+      </div>
+    {% endfor %}
+  {% else %}
+    <div style="color: var(--muted);">No sector data — refresh the universe first.</div>
+  {% endif %}
+</div>
+
+<!-- Top gainers / losers ---------------------------------------------- -->
+<div class="grid" style="grid-template-columns: 1fr 1fr; gap: 14px;">
+  <div class="card">
+    <h2 style="margin: 0 0 10px; display: flex; align-items: center; gap: 6px;"><i data-lucide="trending-up" style="color: var(--green-bright);"></i>Top gainers today</h2>
+    {% for r in agg.gainers %}
+      <a href="/stock/{{ r.ticker }}" class="mover-row">
+        <div>
+          <div><strong>{{ r.ticker }}</strong> <span class="verdict {{ r.verdict }}" style="font-size: 9px;">{{ r.verdict }}</span></div>
+          <div style="color: var(--muted); font-size: 11px;">{{ r.name[:36] }}</div>
+        </div>
+        <div style="text-align: right;">
+          <div style="font-weight: 600;">₹{{ '{:,.0f}'.format(r.last_close) }}</div>
+          <div class="pos" style="font-size: 12px; font-weight: 600;">+{{ '{:.2f}'.format(r.change_pct) }}%</div>
+        </div>
+      </a>
+    {% endfor %}
+  </div>
+  <div class="card">
+    <h2 style="margin: 0 0 10px; display: flex; align-items: center; gap: 6px;"><i data-lucide="trending-down" style="color: var(--red-bright);"></i>Top losers today</h2>
+    {% for r in agg.losers %}
+      <a href="/stock/{{ r.ticker }}" class="mover-row">
+        <div>
+          <div><strong>{{ r.ticker }}</strong> <span class="verdict {{ r.verdict }}" style="font-size: 9px;">{{ r.verdict }}</span></div>
+          <div style="color: var(--muted); font-size: 11px;">{{ r.name[:36] }}</div>
+        </div>
+        <div style="text-align: right;">
+          <div style="font-weight: 600;">₹{{ '{:,.0f}'.format(r.last_close) }}</div>
+          <div class="neg" style="font-size: 12px; font-weight: 600;">{{ '{:.2f}'.format(r.change_pct) }}%</div>
+        </div>
+      </a>
+    {% endfor %}
+  </div>
+</div>
+
+<style>
+  .mover-row { display: flex; justify-content: space-between; align-items: center; padding: 8px 0; border-bottom: 1px solid var(--border-soft); text-decoration: none; color: var(--text); }
+  .mover-row:last-child { border-bottom: 0; }
+  .mover-row:hover { background: var(--panel-soft); margin: 0 -8px; padding-left: 8px; padding-right: 8px; border-radius: 4px; text-decoration: none; }
+</style>
+
+<!-- Heatmap ----------------------------------------------------------- -->
+<div class="card">
+  <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; flex-wrap: wrap; gap: 8px;">
+    <h2 style="margin: 0; display: flex; align-items: center; gap: 6px;"><i data-lucide="grid-3x3"></i>Heatmap by sector</h2>
+    <div style="display: flex; gap: 4px;">
+      <button type="button" class="period-btn active" data-color="day_change_pct">Day %</button>
+      <button type="button" class="period-btn" data-color="combined_score">Combined score</button>
+    </div>
+  </div>
+  <div id="heatmap-legend" style="display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--muted); margin-bottom: 12px;">
+    <span>Negative</span>
+    <span style="display: inline-block; width: 200px; height: 10px; background: linear-gradient(to right, #b91c1c, #fee2e2, #f1f3f6, #dcfce7, #15803d); border-radius: 2px;"></span>
+    <span>Positive</span>
+  </div>
+  <div id="heatmap"></div>
+</div>
+
+<style>
+  .period-btn { background: var(--panel); border: 1px solid var(--border); color: var(--muted); padding: 4px 12px; font-size: 12px; border-radius: 4px; cursor: pointer; font-weight: 500; }
+  .period-btn:hover { color: var(--text); border-color: var(--muted); background: var(--panel-soft); }
+  .period-btn.active { background: var(--accent); color: #ffffff; border-color: var(--accent); }
+  .heat-sector { margin-bottom: 14px; }
+  .heat-sector-head { display: flex; justify-content: space-between; align-items: center; padding: 4px 2px; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; color: var(--muted); font-weight: 600; }
+  .heat-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(95px, 1fr)); gap: 3px; }
+  .heat-cell { padding: 8px 6px; border-radius: 3px; cursor: pointer; text-decoration: none; color: inherit; font-size: 11px; line-height: 1.25; min-height: 52px; transition: transform 0.05s, box-shadow 0.1s; }
+  .heat-cell:hover { transform: scale(1.04); z-index: 2; box-shadow: 0 2px 8px rgba(0,0,0,0.18); text-decoration: none; }
+  .heat-cell .ticker { font-weight: 700; font-size: 12px; display: block; }
+  .heat-cell .change { font-size: 11px; margin-top: 2px; opacity: 0.95; }
+</style>
+
+<script>
+const HEAT_DATA = {{ heat | tojson }};
+
+function lerpColor(t) {
+  // t in [-1, +1] → red→neutral→green
+  // negative side: #b91c1c (negative_strong) → #fee2e2 (negative_soft) → #f1f3f6 (neutral)
+  // positive side: #f1f3f6 → #dcfce7 → #15803d
+  const stops = [
+    { t: -1.0, c: [185, 28, 28],  text: '#fff' },
+    { t: -0.5, c: [254, 178, 178], text: '#7f1d1d' },
+    { t:  0.0, c: [241, 243, 246], text: '#374151' },
+    { t:  0.5, c: [187, 247, 208], text: '#14532d' },
+    { t:  1.0, c: [21, 128, 61],   text: '#fff' }
+  ];
+  // Clamp
+  if (t <= -1) return stops[0];
+  if (t >=  1) return stops[stops.length - 1];
+  for (let i = 0; i < stops.length - 1; i++) {
+    if (t >= stops[i].t && t <= stops[i+1].t) {
+      const a = stops[i], b = stops[i+1];
+      const f = (t - a.t) / (b.t - a.t);
+      return {
+        c: a.c.map((v, idx) => Math.round(v + (b.c[idx] - v) * f)),
+        text: f < 0.5 ? a.text : b.text
+      };
+    }
+  }
+  return stops[2];
+}
+
+function renderHeatmap(colorBy) {
+  const items = HEAT_DATA.filter(r => r[colorBy] !== null && r[colorBy] !== undefined);
+  if (items.length === 0) {
+    document.getElementById('heatmap').innerHTML =
+      '<div style="color: var(--muted); padding: 20px; text-align: center;">No data — refresh the universe.</div>';
+    return;
+  }
+
+  // Normalize: for day_change_pct use ±5% as full saturation; for combined_score use ±2.
+  const fullScale = colorBy === 'combined_score' ? 2 : 5;
+
+  const bySector = {};
+  items.forEach(r => {
+    if (!bySector[r.sector]) bySector[r.sector] = [];
+    bySector[r.sector].push(r);
+  });
+  const sectors = Object.keys(bySector).sort((a, b) => {
+    const avgA = bySector[a].reduce((s, r) => s + (r[colorBy] || 0), 0) / bySector[a].length;
+    const avgB = bySector[b].reduce((s, r) => s + (r[colorBy] || 0), 0) / bySector[b].length;
+    return avgB - avgA;
+  });
+
+  const html = sectors.map(sec => {
+    const rows = bySector[sec].sort((a, b) => (b[colorBy] || 0) - (a[colorBy] || 0));
+    const avg = rows.reduce((s, r) => s + (r[colorBy] || 0), 0) / rows.length;
+    const cells = rows.map(r => {
+      const v = r[colorBy] || 0;
+      const t = Math.max(-1, Math.min(1, v / fullScale));
+      const col = lerpColor(t);
+      const bg = `rgb(${col.c[0]},${col.c[1]},${col.c[2]})`;
+      const tooltip = `${r.ticker} — ${r.name}\n${r.sector}\n${colorBy === 'day_change_pct' ? (v.toFixed(2) + '%') : 'score ' + v.toFixed(2)}\nVerdict: ${r.verdict}`;
+      const display = colorBy === 'day_change_pct'
+        ? (v > 0 ? '+' : '') + v.toFixed(2) + '%'
+        : (v > 0 ? '+' : '') + v.toFixed(2);
+      return `<a class="heat-cell" href="/stock/${r.ticker}" title="${tooltip.replace(/"/g, '&quot;')}" style="background: ${bg}; color: ${col.text};">
+        <span class="ticker">${r.ticker}</span>
+        <span class="change">${display}</span>
+      </a>`;
+    }).join('');
+    const avgCol = lerpColor(Math.max(-1, Math.min(1, avg / fullScale)));
+    const avgLabel = colorBy === 'day_change_pct'
+      ? (avg > 0 ? '+' : '') + avg.toFixed(2) + '%'
+      : (avg > 0 ? '+' : '') + avg.toFixed(2);
+    return `<div class="heat-sector">
+      <div class="heat-sector-head">
+        <span>${sec} <span style="opacity: 0.7;">(${rows.length})</span></span>
+        <span style="background: rgb(${avgCol.c[0]},${avgCol.c[1]},${avgCol.c[2]}); color: ${avgCol.text}; padding: 1px 8px; border-radius: 3px;">${avgLabel}</span>
+      </div>
+      <div class="heat-grid">${cells}</div>
+    </div>`;
+  }).join('');
+
+  document.getElementById('heatmap').innerHTML = html;
+}
+
+document.querySelectorAll('.period-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.period-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    renderHeatmap(btn.dataset.color);
+  });
+});
+
+renderHeatmap('day_change_pct');
+</script>
+{% endblock %}
