@@ -1457,6 +1457,35 @@ def api_status():
     return jsonify(batch.read_status(_cache_root()))
 
 
+def _first_run_autobuild():
+    """Fresh installs ship universe lists but no analyzed verdicts, so every
+    page reads '0 stocks cached'. Kick a NIFTY 50 batch automatically — the
+    header shows live progress and bigger universes stay one click away."""
+    global _refresh_thread
+    try:
+        analysis = _cache_root() / "analysis"
+        # _status.json and other _-prefixed bookkeeping files don't count as
+        # cached verdicts — only real per-ticker rows do.
+        if analysis.exists() and any(f.name[:1] != "_" for f in analysis.glob("*.json")):
+            return
+        with _refresh_lock:
+            if _refresh_thread and _refresh_thread.is_alive():
+                return
+            _refresh_thread = threading.Thread(
+                target=_refresh_worker, args=("nifty50", 0, True, False), daemon=True
+            )
+            _refresh_thread.start()
+        print("[startup] Analysis cache is empty (first run) — building NIFTY 50 "
+              "automatically (~2 min). Use Refresh all on the home page for the "
+              "full universe.", flush=True)
+    except Exception:
+        pass
+
+
+# Started at the bottom of the module so every function it needs is defined.
+threading.Thread(target=_first_run_autobuild, daemon=True).start()
+
+
 if __name__ == "__main__":
     import os
     # Bind all interfaces so phones/tablets on the same home WiFi can reach the
