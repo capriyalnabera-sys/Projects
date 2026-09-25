@@ -153,15 +153,16 @@ def _prewarm_pages_async() -> None:
             continue
 
 
-# Universe options shown in the dropdown. "alllisted" (full NSE+BSE) is last.
-_UNIVERSE_MENU = ("all", "nifty50", "nifty100", "nifty500",
-                  "midcap150", "smallcap250", "midsmall400", "alllisted")
+# Universe tabs shown in the UI. Old names (nifty100/500, midcap150, …) still
+# work in URLs and the API — they're just not offered as tabs anymore.
+_UNIVERSE_MENU = ("nifty50", "sensex", "liveset", "alllisted")
 _BIG_UNIVERSES = {"alllisted", "allnse", "allbse", "nsebse", "everylisted"}
 _UNIVERSE_LABELS = {
     "all": "NIFTY ALL", "nifty50": "NIFTY 50", "nifty100": "NIFTY 100",
     "nifty500": "NIFTY 500", "midcap150": "MIDCAP 150",
     "smallcap250": "SMALLCAP 250", "midsmall400": "MIDSMALL 400",
-    "alllisted": "NSE+BSE ALL",
+    "sensex": "SENSEX 30", "liveset": "NSE+BSE",
+    "alllisted": "ALL UNIVERSE",
 }
 
 
@@ -359,7 +360,7 @@ def _classify_pros_cons(rationale: list[str]) -> tuple[list[str], list[str]]:
 @app.route("/")
 def index():
     cache_root = _cache_root()
-    name = request.args.get("universe", "nifty500")
+    name = request.args.get("universe", "nifty50")
     try:
         tickers = _resolve_display_tickers(name, cache_root)
     except ValueError:
@@ -432,10 +433,10 @@ def screener_page():
     cache_root = _cache_root()
     name = request.args.get("universe", "")
     if not name:
-        # Default to the FULL NSE+BSE live set when one exists (user expects to
+        # Default to the NSE+BSE live set when one exists (user expects to
         # see every tradeable stock, ~1,900 names) — else the NIFTY union.
         has_live = bool(universe.load_live_set(cache_root / "universe"))
-        name = "alllisted" if has_live else "all"
+        name = "liveset" if has_live else "all"
     try:
         tickers = _resolve_display_tickers(name, cache_root)
     except ValueError:
@@ -640,7 +641,7 @@ def _accuracy_rebuild_then_release():
 def market():
     from . import market_pulse
     cache_root = _cache_root()
-    name = request.args.get("universe", "nifty100")
+    name = request.args.get("universe", "liveset")
     try:
         tickers = _resolve_display_tickers(name, cache_root)
     except ValueError:
@@ -1302,7 +1303,7 @@ def _refresh_all_worker(ttl_minutes: int, with_telegram: bool):
     Telegram scan runs once for the combined set, then a single batch."""
     cache_root = _cache_root()
     cfg = _load_config()
-    all_universes = ("nifty50", "nifty100", "nifty500", "midcap150", "smallcap250", "midsmall400")
+    all_universes = ("nifty50", "sensex", "liveset")
     seen: set[str] = set()
     tickers: list[str] = []
     for u in all_universes:
@@ -1417,7 +1418,7 @@ def _persist_research_per_ticker(agg, cache_root: Path) -> None:
 @app.route("/api/refresh", methods=["GET", "POST"])
 def api_refresh():
     global _refresh_thread
-    name = request.args.get("universe", "nifty500")
+    name = request.args.get("universe", "liveset")
     ttl = int(request.args.get("ttl_minutes", "0") or 0)
     use_tg = request.args.get("telegram", "1") == "1"
     # full=1 forces a complete sweep of a big universe (all ~5,500 names) and

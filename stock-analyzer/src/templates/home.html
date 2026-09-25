@@ -17,7 +17,7 @@
         {{ u.label }} <span style="opacity: 0.7;">({{ u.cached }})</span></a>
     {% endfor %}
     <button onclick="refresh()" class="secondary" style="margin-left: 8px;" title="Refresh only the currently-selected universe"><i data-lucide="refresh-cw"></i>Refresh</button>
-    <button onclick="refreshAll()" class="secondary" title="Refresh deduplicated tickers across every NIFTY universe (~10–15 min)"><i data-lucide="refresh-ccw-dot"></i>Refresh all</button>
+    <button onclick="refreshAll()" class="secondary" title="Refresh NIFTY 50 + SENSEX + the full NSE+BSE live set (~1,900 tradeable names)"><i data-lucide="refresh-ccw-dot"></i>Refresh all</button>
     <button onclick="fullSweep()" class="secondary" title="Sweep ALL ~5,000 NSE+BSE listed names (slow, ~15–25 min). Rebuilds the live set so future refreshes stay fast."><i data-lucide="globe"></i>Full sweep</button>
     <a href="/screener" class="nav-link" title="Opens the full NSE+BSE tradeable set"><i data-lucide="filter"></i>Full screener</a>
   </div>

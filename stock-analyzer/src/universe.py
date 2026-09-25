@@ -83,10 +83,29 @@ def get_universe(name: str, cache_dir: Optional[Path] = None) -> list[str]:
             except Exception:
                 continue
         return out
+    if name in ("sensex", "sensex30", "bse30"):
+        return list(SENSEX_30)
+    if name in ("liveset", "live", "nsebselive", "tradeable"):
+        # Proven-liquid NSE+BSE names from the last full sweep (~1,900).
+        # Falls back to the complete listing until a sweep has run.
+        live = load_live_set(cache_dir)
+        return live if live else get_all_listed(cache_dir)
     if name in ("alllisted", "allnse", "allbse", "nsebse", "everylisted"):
         # Every equity listed on NSE + BSE, deduplicated by ISIN (~5,000-5,500).
         return get_all_listed(cache_dir)
     raise ValueError(f"Unknown universe: {name}")
+
+
+# BSE SENSEX 30 constituents (NSE symbols, since price data comes via NSE).
+# BSE reviews the index twice a year — update this list when membership
+# changes. As of late 2025: JSW Steel out (Dec 2024), Zomato/Eternal in.
+SENSEX_30 = [
+    "RELIANCE", "HDFCBANK", "ICICIBANK", "INFY", "TCS", "ITC", "BHARTIARTL",
+    "LT", "KOTAKBANK", "SBIN", "AXISBANK", "ASIANPAINT", "MARUTI", "M&M",
+    "TITAN", "SUNPHARMA", "ULTRACEMCO", "NESTLEIND", "BAJFINANCE",
+    "BAJAJFINSV", "NTPC", "POWERGRID", "HCLTECH", "TECHM", "TATASTEEL",
+    "TATAMOTORS", "INDUSINDBK", "HINDUNILVR", "ADANIPORTS", "ETERNAL",
+]
 
 
 # --------------------------------------------------------------------------
