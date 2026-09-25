@@ -18,9 +18,7 @@
     {% endfor %}
     <button onclick="refresh()" class="secondary" style="margin-left: 8px;" title="Refresh only the currently-selected universe"><i data-lucide="refresh-cw"></i>Refresh</button>
     <button onclick="refreshAll()" class="secondary" title="Refresh deduplicated tickers across every NIFTY universe (~10–15 min)"><i data-lucide="refresh-ccw-dot"></i>Refresh all</button>
-    {% for u in universes %}{% if u.is_big and u.active %}
     <button onclick="fullSweep()" class="secondary" title="Sweep ALL ~5,000 NSE+BSE listed names (slow, ~15–25 min). Rebuilds the live set so future refreshes stay fast."><i data-lucide="globe"></i>Full sweep</button>
-    {% endif %}{% endfor %}
     <a href="/screener" class="nav-link" title="Opens the full NSE+BSE tradeable set"><i data-lucide="filter"></i>Full screener</a>
   </div>
 </div>
@@ -241,9 +239,14 @@ function refreshAll() {
 function fullSweep() {
   if (!confirm('Full sweep of ALL ~5,000 NSE+BSE listed names?\n\nThis is slow (~15–25 min) and most BSE micro-caps will be illiquid/no-data. ' +
     'Afterwards, routine "Refresh" of this universe only re-runs the proven-liquid live set (fast).\n\nProceed?')) return;
-  fetch('/api/refresh?universe={{ universe_name }}&full=1', { method: 'POST' })
+  // The sweep always targets the full NSE+BSE listed set, whatever tab is
+  // active; jump to that tab so the progress being watched is the sweep's.
+  fetch('/api/refresh?universe=alllisted&full=1', { method: 'POST' })
     .then(r => r.json()).then(d => {
-      if (d.started) pollStatus();
+      if (d.started) {
+        if ('{{ universe_name }}' !== 'alllisted') { location.href = '/?universe=alllisted'; }
+        else pollStatus();
+      }
       else alert(d.reason || 'Could not start full sweep');
     });
 }
