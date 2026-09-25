@@ -247,7 +247,10 @@ def fno(symbols, config_path, expiry, refresh):
         console.print(f"[dim]Fetching {sym} option chain…[/]")
         a = fno_signals.full_analysis(sym, cfg, expiry=expiry, force=refresh)
         if a is None:
-            console.print(f"[red]{sym}: option chain unavailable (exchange API unreachable, no cache)[/]\n")
+            console.print(f"[red]{sym}: option chain unavailable (exchange API unreachable, no cache)[/]")
+            for line in fno_mod.get_fetch_log(sym):
+                console.print(f"  [dim]{line}[/]")
+            console.print()
             continue
 
         bias_color = {"BULLISH": "bold green", "BEARISH": "bold red",

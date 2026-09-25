@@ -696,6 +696,7 @@ def fno_page(symbol: str = "NIFTY"):
         symbols=[(s, fno_mod.INDEX_META[s]["label"]) for s in fno_mod.DISPLAY_ORDER],
         expiries=(chain or {}).get("expiries") or [], sel_expiry=expiry,
         max_wall_oi=max_wall_oi,
+        fetch_log=fno_mod.get_fetch_log(sym) if analysis is None else [],
     )
 
 
@@ -739,7 +740,8 @@ def api_fno(symbol: str):
                                   force=request.args.get("refresh") in ("1", "true"))
     if a is None:
         return jsonify({"available": False,
-                        "error": "option chain unavailable (exchange API unreachable and no cached copy)"}), 503
+                        "error": "option chain unavailable (exchange API unreachable and no cached copy)",
+                        "attempts": fno_mod.get_fetch_log(sym)}), 503
     return jsonify({"available": True, **a.to_dict()})
 
 

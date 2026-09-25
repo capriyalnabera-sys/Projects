@@ -19,7 +19,7 @@ if not exist ".venv\Scripts\python.exe" (
 )
 
 rem ---- Install dependencies if missing --------------------------------------
-.venv\Scripts\python.exe -c "import flask, yfinance" 2>nul
+.venv\Scripts\python.exe -c "import flask, yfinance, brotli" 2>nul
 if errorlevel 1 (
     echo Installing dependencies - one-time, takes a few minutes...
     .venv\Scripts\python.exe -m pip install -r requirements.txt
@@ -27,6 +27,9 @@ if errorlevel 1 (
 
 rem ---- Default config on first run -------------------------------------------
 if not exist "config.yaml" copy config.example.yaml config.yaml >nul
+
+rem ---- Desktop shortcut so next launch is a double-click ---------------------
+powershell -NoProfile -ExecutionPolicy Bypass -Command "$ws = New-Object -ComObject WScript.Shell; $lnk = [Environment]::GetFolderPath('Desktop') + '\Stock Analyzer.lnk'; if (-not (Test-Path $lnk)) { $sc = $ws.CreateShortcut($lnk); $sc.TargetPath = '%~dp0run-web.bat'; $sc.WorkingDirectory = '%~dp0'; $sc.IconLocation = '%%SystemRoot%%\System32\shell32.dll,137'; $sc.Save(); Write-Host 'Created desktop shortcut: Stock Analyzer' }" 2>nul
 
 echo.
 echo Stock Analyzer 2.0 starting at http://127.0.0.1:5000/

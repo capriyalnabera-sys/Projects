@@ -1,1 +1,1 @@
-{"signal": "tailwind", "reason": "FII net buying \u20b96,688 cr \u2014 strong inflow", "fii_net_cr": 6688.0, "dii_net_cr": 2813.0, "as_of": "02-Sep-2026", "computed_at": "2026-09-03T13:22:15"}
+{"signal": "unknown", "reason": "Fetch failed: HTTPSConnectionPool(host='www.nseindia.com', port=443): Max retries exceeded with url: /api/fiidiiTradeReact (Caused by ProxyError('Unable to connect to proxy', OSError('Tunnel connection failed: 403 Forbidden')))", "as_of": ""}

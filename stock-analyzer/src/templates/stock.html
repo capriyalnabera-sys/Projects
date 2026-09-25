@@ -53,7 +53,7 @@
   .stock-hero.verdict-BUY        { border-left-color: var(--green-bright); }
   .stock-hero.verdict-ACCUMULATE { border-left-color: var(--green); }
   .stock-hero.verdict-HOLD       { border-left-color: var(--yellow-bright); }
-  .stock-hero.verdict-REDUCE     { border-left-color: #fb923c; }
+  .stock-hero.verdict-REDUCE     { border-left-color: var(--orange); }
   .stock-hero.verdict-AVOID      { border-left-color: var(--red-bright); }
   .calib-chip { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; padding: 2px 8px; border-radius: 10px; font-weight: 600; background: var(--accent-soft); color: var(--accent); cursor: help; }
   .calib-chip.applied { background: var(--yellow-soft); color: var(--yellow); }
@@ -390,9 +390,9 @@ fetch('/api/short-term/{{ r.ticker }}')
         <button type="button" data-period="5y" class="period-btn">5Y</button>
       </div>
       <div style="font-size: 12px; color: var(--muted);">
-        <span style="color: #2563eb;">●</span> Close
-        <span style="color: #f59e0b; margin-left: 10px;">●</span> 50 SMA
-        <span style="color: #ef4444; margin-left: 10px;">●</span> 200 SMA
+        <span style="color: var(--accent);">●</span> Close
+        <span style="color: var(--yellow-bright); margin-left: 10px;">●</span> 50 SMA
+        <span style="color: var(--red-bright); margin-left: 10px;">●</span> 200 SMA
       </div>
     </div>
   </div>
@@ -558,15 +558,15 @@ fetch('/api/nse-filings/{{ r.ticker }}')
   .filing-summary { font-size: 13px; color: var(--text); line-height: 1.55; padding: 10px 12px; background: var(--panel-soft); border-left: 3px solid var(--accent); border-radius: 4px; margin-bottom: 10px; }
 
   .doc-badge { display: inline-block; font-size: 10px; padding: 1px 6px; border-radius: 3px; text-transform: uppercase; letter-spacing: 0.3px; margin: 0 4px; font-weight: 600; }
-  .doc-concall      { background: #e3f2fd; color: #1565c0; }
-  .doc-presentation { background: #f3e5f5; color: #7b1fa2; }
-  .doc-research     { background: #fff3e0; color: #ef6c00; }
-  .doc-transcript   { background: #eceff1; color: #455a64; }
+  .doc-concall      { background: var(--accent-soft); color: var(--accent); }
+  .doc-presentation { background: var(--purple-soft); color: var(--purple); }
+  .doc-research     { background: var(--orange-soft); color: var(--orange); }
+  .doc-transcript   { background: var(--panel-soft); color: var(--muted); }
 
   .tone-badge { display: inline-block; margin-left: 10px; font-size: 11px; padding: 2px 8px; border-radius: 10px; font-weight: 600; }
-  .tone-positive { background: #e8f5e9; color: #2e7d32; }
-  .tone-negative { background: #ffebee; color: #c62828; }
-  .tone-neutral  { background: #eceff1; color: #455a64; }
+  .tone-positive { background: var(--green-soft); color: var(--green); }
+  .tone-negative { background: var(--red-soft); color: var(--red); }
+  .tone-neutral  { background: var(--panel-soft); color: var(--muted); }
 
   .analysis-block { margin: 10px 0 4px; }
   .analysis-block-h { display: flex; align-items: center; gap: 6px; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.4px; color: var(--muted); margin-bottom: 6px; }
@@ -733,8 +733,8 @@ fetch('/api/research/{{ r.ticker }}')
   .news-title { font-weight: 500; line-height: 1.4; margin-bottom: 4px; transition: color 0.1s; }
   .news-meta { font-size: 11px; color: var(--muted); display: flex; align-items: center; gap: 8px; }
   .news-source-pill { background: var(--panel-soft); color: var(--muted); padding: 1px 6px; border-radius: 3px; font-size: 10px; text-transform: uppercase; letter-spacing: 0.5px; }
-  .news-source-pill.yahoo { background: #ede9fe; color: #5b21b6; }
-  .news-source-pill.moneycontrol { background: #fee2e2; color: #b91c1c; }
+  .news-source-pill.yahoo { background: var(--purple-soft); color: var(--purple); }
+  .news-source-pill.moneycontrol { background: var(--red-soft); color: var(--red); }
 </style>
 
 <script>
@@ -815,15 +815,24 @@ fetch('/api/news/{{ r.ticker }}')
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
 <script>
 let priceChart = null, rsiChart = null, macdChart = null;
-const opts = (extra) => Object.assign({
-  responsive: true, maintainAspectRatio: false, animation: { duration: 0 },
-  interaction: { mode: 'index', intersect: false },
-  plugins: { legend: { display: false }, tooltip: { backgroundColor: '#ffffff', titleColor: '#1a1f2e', bodyColor: '#1a1f2e', borderColor: '#e2e5eb', borderWidth: 1 } },
-  scales: {
-    x: { ticks: { color: '#6b7280', maxTicksLimit: 8, autoSkip: true }, grid: { color: '#e2e5eb' } },
-    y: { ticks: { color: '#6b7280' }, grid: { color: '#e2e5eb' } }
-  }
-}, extra);
+// Theme-aware chart chrome — reads the design tokens so both light and dark
+// render correctly (the theme toggle reloads the page, so init-time is fine).
+const chartInk = () => ({
+  grid: cssVar('--chart-grid'), tick: cssVar('--chart-tick'),
+  panel: cssVar('--panel'), text: cssVar('--text'), border: cssVar('--border'),
+});
+const opts = (extra) => {
+  const ink = chartInk();
+  return Object.assign({
+    responsive: true, maintainAspectRatio: false, animation: { duration: 0 },
+    interaction: { mode: 'index', intersect: false },
+    plugins: { legend: { display: false }, tooltip: { backgroundColor: ink.panel, titleColor: ink.text, bodyColor: ink.text, borderColor: ink.border, borderWidth: 1 } },
+    scales: {
+      x: { ticks: { color: ink.tick, maxTicksLimit: 8, autoSkip: true }, grid: { color: ink.grid } },
+      y: { ticks: { color: ink.tick }, grid: { color: ink.grid } }
+    }
+  }, extra);
+};
 
 function showChartError(msg) {
   ['price-chart','rsi-chart','macd-chart'].forEach(id => {
@@ -860,9 +869,9 @@ function loadChart(period) {
       priceChart = new Chart(document.getElementById('price-chart'), {
         type: 'line',
         data: { labels, datasets: [
-          { label: 'Close',   data: d.close,  borderColor: '#2563eb', backgroundColor: 'rgba(37,99,235,0.06)', borderWidth: 1.8, fill: true,  pointRadius: 0, tension: 0.1 },
-          { label: '50 SMA',  data: d.sma50,  borderColor: '#f59e0b', borderWidth: 1.3, pointRadius: 0, fill: false, tension: 0.1 },
-          { label: '200 SMA', data: d.sma200, borderColor: '#ef4444', borderWidth: 1.3, pointRadius: 0, fill: false, tension: 0.1 },
+          { label: 'Close',   data: d.close,  borderColor: cssVar('--accent'), backgroundColor: cssVar('--accent-soft'), borderWidth: 2, fill: true,  pointRadius: 0, tension: 0.1 },
+          { label: '50 SMA',  data: d.sma50,  borderColor: cssVar('--yellow-bright'), borderWidth: 1.3, pointRadius: 0, fill: false, tension: 0.1 },
+          { label: '200 SMA', data: d.sma200, borderColor: cssVar('--red-bright'), borderWidth: 1.3, pointRadius: 0, fill: false, tension: 0.1 },
         ]},
         options: opts({})
       });
@@ -871,11 +880,11 @@ function loadChart(period) {
       rsiChart = new Chart(document.getElementById('rsi-chart'), {
         type: 'line',
         data: { labels, datasets: [
-          { label: 'RSI', data: d.rsi, borderColor: '#7c3aed', backgroundColor: 'rgba(124,58,237,0.06)', borderWidth: 1.8, pointRadius: 0, fill: true, tension: 0.1 }
+          { label: 'RSI', data: d.rsi, borderColor: cssVar('--purple'), backgroundColor: cssVar('--purple-soft'), borderWidth: 2, pointRadius: 0, fill: true, tension: 0.1 }
         ]},
         options: opts({ scales: {
-          x: { ticks: { color: '#6b7280', maxTicksLimit: 6, autoSkip: true }, grid: { color: '#e2e5eb' } },
-          y: { min: 0, max: 100, ticks: { color: '#6b7280', stepSize: 20 }, grid: { color: '#e2e5eb' } }
+          x: { ticks: { color: chartInk().tick, maxTicksLimit: 6, autoSkip: true }, grid: { color: chartInk().grid } },
+          y: { min: 0, max: 100, ticks: { color: chartInk().tick, stepSize: 20 }, grid: { color: chartInk().grid } }
         } })
       });
 
@@ -883,9 +892,9 @@ function loadChart(period) {
       macdChart = new Chart(document.getElementById('macd-chart'), {
         data: { labels, datasets: [
           { type: 'bar',  label: 'Hist',   data: d.macd_hist,
-            backgroundColor: ctx => (ctx.parsed.y >= 0 ? 'rgba(34,197,94,0.5)' : 'rgba(239,68,68,0.5)'), borderWidth: 0 },
-          { type: 'line', label: 'MACD',   data: d.macd,   borderColor: '#2563eb', borderWidth: 1.4, pointRadius: 0, fill: false },
-          { type: 'line', label: 'Signal', data: d.signal, borderColor: '#f59e0b', borderWidth: 1.2, pointRadius: 0, fill: false },
+            backgroundColor: ctx => (ctx.parsed.y >= 0 ? 'rgba(12,163,12,0.5)' : 'rgba(208,59,59,0.5)'), borderWidth: 0 },
+          { type: 'line', label: 'MACD',   data: d.macd,   borderColor: cssVar('--accent'), borderWidth: 1.4, pointRadius: 0, fill: false },
+          { type: 'line', label: 'Signal', data: d.signal, borderColor: cssVar('--yellow-bright'), borderWidth: 1.2, pointRadius: 0, fill: false },
         ]},
         options: opts({})
       });

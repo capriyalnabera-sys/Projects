@@ -10,3 +10,4 @@ click>=8.1
 telethon>=1.36
 pypdf>=4.0
 flask>=3.0
+brotli>=1.1  # NSE serves brotli-compressed responses when advertised; requests uses this transparently

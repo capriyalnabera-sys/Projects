@@ -184,13 +184,20 @@ def parse_nse_chain(raw: dict, symbol: str, expiry: Optional[str] = None) -> Opt
     expiries: list[str] = list(records.get("expiryDates") or [])
     data = records.get("data") or []
     spot = records.get("underlyingValue")
+    if not expiries and expiry:
+        expiries = [expiry]  # v3 responses carry no expiry list
     if not expiries or not data or not spot:
         return None
     target = expiry if expiry in expiries else expiries[0]
 
     rows: list[dict] = []
     for item in data:
-        if not isinstance(item, dict) or item.get("expiryDate") != target:
+        if not isinstance(item, dict):
+            continue
+        # Classic rows carry expiryDate per row; v3 rows (single-expiry
+        # responses) may omit it — treat missing as belonging to the target.
+        row_exp = item.get("expiryDate")
+        if row_exp is not None and row_exp != target:
             continue
         strike = item.get("strikePrice")
         if strike is None:
@@ -215,21 +222,109 @@ def parse_nse_chain(raw: dict, symbol: str, expiry: Optional[str] = None) -> Opt
     }
 
 
-def _fetch_nse_chain(symbol: str, expiry: Optional[str] = None) -> Optional[dict]:
-    s = _oc_get_session()
-    url = OC_API_CLASSIC.format(symbol=symbol.upper())
+# Human-readable log of what the last fetch tried, per symbol — surfaced on the
+# UI's "chain unavailable" card and in the CLI so failures are debuggable
+# instead of a silent None.
+_fetch_log: dict[str, list[str]] = {}
+
+
+def get_fetch_log(symbol: str) -> list[str]:
+    return _fetch_log.get(symbol.upper(), [])
+
+
+def _log(symbol: str, msg: str) -> None:
+    _fetch_log.setdefault(symbol.upper(), []).append(msg)
+    print(f"[fno] {symbol}: {msg}", flush=True)
+
+
+def _get_json(s: requests.Session, url: str, symbol: str, tag: str,
+              rewarm_once: bool = True) -> Optional[object]:
+    """GET an NSE API URL with the option-chain session. Logs every failure
+    mode distinctly (block status, empty body, HTML bot-challenge, timeout)."""
     for attempt in range(2):
         try:
-            r = s.get(url, headers=_oc_headers(), timeout=12)
-            if r.status_code in (401, 403) and attempt == 0:
-                _force_rewarm()
-                s = _oc_get_session()
-                continue
-            if r.status_code != 200 or not r.text.strip():
-                return None
-            return parse_nse_chain(r.json(), symbol, expiry)
-        except Exception:
+            r = s.get(url, headers=_oc_headers(), timeout=15)
+        except requests.Timeout:
+            _log(symbol, f"{tag}: timeout after 15s")
             return None
+        except Exception as e:
+            _log(symbol, f"{tag}: {type(e).__name__}: {e}")
+            return None
+        if r.status_code in (401, 403) and rewarm_once and attempt == 0:
+            _log(symbol, f"{tag}: HTTP {r.status_code} — rewarming cookies and retrying")
+            _force_rewarm()
+            s = _oc_get_session()
+            continue
+        if r.status_code != 200:
+            _log(symbol, f"{tag}: HTTP {r.status_code}")
+            return None
+        if not r.text.strip():
+            _log(symbol, f"{tag}: HTTP 200 but empty body (Akamai block)")
+            return None
+        try:
+            return r.json()
+        except ValueError:
+            head = r.text.lstrip()[:40].replace("\n", " ")
+            _log(symbol, f"{tag}: HTTP 200 but not JSON (starts: {head!r}) — bot challenge page")
+            return None
+    return None
+
+
+def _extract_expiries(obj: object) -> list[str]:
+    """Find date-like expiry strings anywhere in a contract-info response —
+    shape has drifted between deployments, so search rather than assume."""
+    out: list[str] = []
+
+    def walk(o: object) -> None:
+        if isinstance(o, str):
+            if parse_expiry_date(o) is not None:
+                out.append(o)
+        elif isinstance(o, list):
+            for v in o:
+                walk(v)
+        elif isinstance(o, dict):
+            for v in o.values():
+                walk(v)
+
+    walk(obj)
+    seen: set[str] = set()
+    uniq = [e for e in out if not (e in seen or seen.add(e))]
+    uniq.sort(key=lambda e: parse_expiry_date(e))
+    return uniq
+
+
+def _fetch_nse_chain(symbol: str, expiry: Optional[str] = None) -> Optional[dict]:
+    sym = symbol.upper()
+    _fetch_log[sym] = []
+    s = _oc_get_session()
+
+    # 1. Classic endpoint — full chain, all expiries, one call.
+    raw = _get_json(s, OC_API_CLASSIC.format(symbol=sym), sym, "option-chain-indices")
+    if raw is not None:
+        chain = parse_nse_chain(raw, sym, expiry)
+        if chain is not None:
+            _log(sym, f"option-chain-indices: OK ({len(chain['rows'])} strikes, expiry {chain['expiry']})")
+            return chain
+        _log(sym, "option-chain-indices: JSON received but no parsable records")
+
+    # 2. v3 endpoint — needs an explicit expiry, so ask contract-info first.
+    s = _oc_get_session()
+    expiries: list[str] = [expiry] if expiry else []
+    if not expiries:
+        info = _get_json(s, OC_CONTRACT_INFO.format(symbol=sym), sym, "contract-info")
+        if info is not None:
+            expiries = _extract_expiries(info)[:1]
+            if not expiries:
+                _log(sym, "contract-info: no expiry dates found in response")
+    if expiries:
+        raw = _get_json(s, OC_API_V3.format(symbol=sym, expiry=requests.utils.quote(expiries[0])),
+                        sym, "option-chain-v3")
+        if raw is not None:
+            chain = parse_nse_chain(raw, sym, expiries[0])
+            if chain is not None:
+                _log(sym, f"option-chain-v3: OK ({len(chain['rows'])} strikes)")
+                return chain
+            _log(sym, "option-chain-v3: JSON received but no parsable records")
     return None
 
 
@@ -237,19 +332,30 @@ def _fetch_nse_chain(symbol: str, expiry: Optional[str] = None) -> Optional[dict
 # BSE fetch + parse (SENSEX) — best effort
 # ---------------------------------------------------------------------------
 
-def _bse_get(url: str) -> Optional[object]:
+def _bse_get(url: str, tag: str) -> Optional[object]:
     try:
-        r = requests.get(url, headers=BSE_HEADERS, timeout=12)
-        if r.status_code != 200 or not r.text.strip():
+        r = requests.get(url, headers=BSE_HEADERS, timeout=15)
+        if r.status_code != 200:
+            _log("SENSEX", f"{tag}: HTTP {r.status_code}")
+            return None
+        if not r.text.strip():
+            _log("SENSEX", f"{tag}: HTTP 200 but empty body")
             return None
         return r.json()
-    except Exception:
+    except requests.Timeout:
+        _log("SENSEX", f"{tag}: timeout after 15s")
+        return None
+    except ValueError:
+        _log("SENSEX", f"{tag}: HTTP 200 but not JSON")
+        return None
+    except Exception as e:
+        _log("SENSEX", f"{tag}: {type(e).__name__}: {e}")
         return None
 
 
 def _bse_expiries() -> list[str]:
     for url in BSE_EXPIRY_URLS:
-        d = _bse_get(url)
+        d = _bse_get(url, "bse-expiry-list")
         if not d:
             continue
         # Seen shapes: {"Table":[{"ExpiryDate":"30 Sep 2026"},...]} or a bare list
@@ -311,20 +417,25 @@ def _parse_bse_rows(items: list) -> list[dict]:
 
 
 def _fetch_bse_chain(expiry: Optional[str] = None) -> Optional[dict]:
+    _fetch_log["SENSEX"] = []
     expiries = _bse_expiries()
     if not expiries:
+        _log("SENSEX", "no expiry list from BSE — cannot request a chain")
         return None
     target = expiry if expiry in expiries else expiries[0]
     for url_tpl in BSE_CHAIN_URLS:
-        d = _bse_get(url_tpl.format(expiry=requests.utils.quote(target)))
+        d = _bse_get(url_tpl.format(expiry=requests.utils.quote(target)), "bse-chain")
         if not d:
             continue
         items = d.get("Table") if isinstance(d, dict) else d
         if not isinstance(items, list) or not items:
+            _log("SENSEX", "bse-chain: JSON received but no Table rows")
             continue
         rows = _parse_bse_rows(items)
         if not rows:
+            _log("SENSEX", "bse-chain: rows present but none parsable (column names changed?)")
             continue
+        _log("SENSEX", f"bse-chain: OK ({len(rows)} strikes, expiry {target})")
         # Spot: some payloads carry it; else leave None and let the caller
         # fill from yfinance ^BSESN.
         spot = None

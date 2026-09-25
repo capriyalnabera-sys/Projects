@@ -147,7 +147,7 @@
   </div>
   <div id="heatmap-legend" style="display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--muted); margin-bottom: 12px;">
     <span>Negative</span>
-    <span style="display: inline-block; width: 200px; height: 10px; background: linear-gradient(to right, #b91c1c, #fee2e2, #f1f3f6, #dcfce7, #15803d); border-radius: 2px;"></span>
+    <span id="heatmap-legend-bar" style="display: inline-block; width: 200px; height: 10px; border-radius: 2px;"></span>
     <span>Positive</span>
   </div>
   <div id="heatmap"></div>
@@ -169,17 +169,41 @@
 <script>
 const HEAT_DATA = {{ heat | tojson }};
 
+// Diverging red↔neutral↔green ramp with its own steps per theme: the neutral
+// midpoint must sit near the page surface (near-white on light, near-black on
+// dark) or every flat stock glows.
+const HEAT_STOPS_LIGHT = [
+  { t: -1.0, c: [185, 28, 28],   text: '#fff' },
+  { t: -0.5, c: [254, 178, 178], text: '#7f1d1d' },
+  { t:  0.0, c: [241, 240, 236], text: '#52514e' },
+  { t:  0.5, c: [187, 247, 208], text: '#14532d' },
+  { t:  1.0, c: [21, 128, 61],   text: '#fff' }
+];
+const HEAT_STOPS_DARK = [
+  { t: -1.0, c: [176, 48, 48],   text: '#fff' },
+  { t: -0.5, c: [92, 38, 38],    text: '#f1b9b9' },
+  { t:  0.0, c: [40, 40, 38],    text: '#c3c2b7' },
+  { t:  0.5, c: [34, 74, 42],    text: '#b7e8c3' },
+  { t:  1.0, c: [26, 138, 68],   text: '#fff' }
+];
+
+function heatStops() {
+  // Inline theme check — base.html's helpers load after this block runs.
+  const dark = document.documentElement.dataset.theme === 'dark' ||
+    (!document.documentElement.dataset.theme && window.matchMedia('(prefers-color-scheme: dark)').matches);
+  return dark ? HEAT_STOPS_DARK : HEAT_STOPS_LIGHT;
+}
+
+// Legend gradient mirrors whichever ramp is active.
+(function () {
+  const bar = document.getElementById('heatmap-legend-bar');
+  if (!bar) return;
+  const g = heatStops().map(s => `rgb(${s.c.join(',')}) ${((s.t + 1) / 2 * 100).toFixed(0)}%`).join(', ');
+  bar.style.background = `linear-gradient(to right, ${g})`;
+})();
+
 function lerpColor(t) {
-  // t in [-1, +1] → red→neutral→green
-  // negative side: #b91c1c (negative_strong) → #fee2e2 (negative_soft) → #f1f3f6 (neutral)
-  // positive side: #f1f3f6 → #dcfce7 → #15803d
-  const stops = [
-    { t: -1.0, c: [185, 28, 28],  text: '#fff' },
-    { t: -0.5, c: [254, 178, 178], text: '#7f1d1d' },
-    { t:  0.0, c: [241, 243, 246], text: '#374151' },
-    { t:  0.5, c: [187, 247, 208], text: '#14532d' },
-    { t:  1.0, c: [21, 128, 61],   text: '#fff' }
-  ];
+  const stops = heatStops();
   // Clamp
   if (t <= -1) return stops[0];
   if (t >=  1) return stops[stops.length - 1];
