@@ -674,18 +674,33 @@ def fno_page(symbol: str = "NIFTY"):
     cfg = _load_config()
 
     def _build():
+        from . import fno_history, fno_alerts, fno_accuracy
         analysis = fno_signals.full_analysis(sym, cfg, expiry=expiry, force=force)
         chain = fno_mod.get_chain(sym, expiry=expiry)
-        return analysis, chain
+        # Page views feed the same history the background tracker writes —
+        # maybe_record dedups on the exchange timestamp, so no double entries.
+        if analysis is not None:
+            fno_history.maybe_record(analysis)
+        shifts = fno_history.intraday_shifts(fno_history.intraday(sym))
+        sparks = {}
+        if shifts.get("available"):
+            for key in ("spot", "pcr", "max_pain", "atm_iv"):
+                sparks[key] = fno_history.spark_points(shifts["series"].get(key) or [])
+        return {
+            "analysis": analysis, "chain": chain, "shifts": shifts,
+            "sparks": sparks, "alerts": fno_alerts.recent_alerts(8),
+            "track": fno_accuracy.evaluate(sym),
+        }
 
     memo_key = f"fno:{sym}:{expiry or 'near'}"
     if force:
-        analysis, chain = _build()
+        ctx = _build()
         with _MEMO_LOCK:
-            _MEMO[memo_key] = (time.time(), (analysis, chain))
+            _MEMO[memo_key] = (time.time(), ctx)
     else:
-        analysis, chain = _memo_get(memo_key, 120, _build)
+        ctx = _memo_get(memo_key, 120, _build)
 
+    analysis, chain = ctx["analysis"], ctx["chain"]
     chain_rows = _fno_display_rows(chain, analysis) if (chain and analysis) else []
     max_wall_oi = max(
         [s["oi"] for s in (analysis.supports if analysis else [])] +
@@ -698,6 +713,8 @@ def fno_page(symbol: str = "NIFTY"):
         expiries=(chain or {}).get("expiries") or [], sel_expiry=expiry,
         max_wall_oi=max_wall_oi,
         fetch_log=fno_mod.get_fetch_log(sym) if analysis is None else [],
+        shifts=ctx["shifts"], sparks=ctx["sparks"],
+        alerts=ctx["alerts"], track=ctx["track"],
     )
 
 
@@ -744,6 +761,35 @@ def api_fno(symbol: str):
                         "error": "option chain unavailable (exchange API unreachable and no cached copy)",
                         "attempts": fno_mod.get_fetch_log(sym)}), 503
     return jsonify({"available": True, **a.to_dict()})
+
+
+@app.route("/api/fno/<symbol>/intraday")
+def api_fno_intraday(symbol: str):
+    """Today's tracked snapshots + shift readings for an index."""
+    from . import fno as fno_mod, fno_history
+    sym = symbol.upper()
+    if sym not in fno_mod.INDEX_META:
+        abort(404)
+    records = fno_history.intraday(sym)
+    return jsonify({"symbol": sym, "records": records,
+                    "shifts": fno_history.intraday_shifts(records)})
+
+
+@app.route("/api/fno/alerts")
+def api_fno_alerts():
+    """Recent F&O signal-change alerts across all tracked indices."""
+    from . import fno_alerts
+    return jsonify({"alerts": fno_alerts.recent_alerts(int(request.args.get("limit", 20)))})
+
+
+@app.route("/api/fno/<symbol>/track")
+def api_fno_track(symbol: str):
+    """Backtest of recorded end-of-day F&O signals vs subsequent index moves."""
+    from . import fno as fno_mod, fno_accuracy
+    sym = symbol.upper()
+    if sym not in fno_mod.INDEX_META:
+        abort(404)
+    return jsonify(fno_accuracy.evaluate(sym))
 
 
 @app.route("/api/fno/<symbol>/chain")
@@ -1485,6 +1531,46 @@ def _first_run_autobuild():
 
 # Started at the bottom of the module so every function it needs is defined.
 threading.Thread(target=_first_run_autobuild, daemon=True).start()
+
+
+def _fno_tracker_loop():
+    """Background F&O tracker: while the server runs, analyze each tracked
+    index every few minutes during market hours, append a history snapshot
+    (powers the intraday tracker + backtest) and fire signal-change alerts.
+    Off-hours it idles cheaply; the as_of dedup makes holiday polls no-ops."""
+    from . import fno_signals, fno_history, fno_alerts
+    time.sleep(20)  # let startup prewarm settle first
+    while True:
+        interval = 300
+        try:
+            cfg = _load_config()
+            fcfg = cfg.get("fno") or {}
+            interval = max(120, int(fcfg.get("track_interval_minutes", 5)) * 60)
+            if fno_history.is_market_hours():
+                symbols = fcfg.get("track_symbols") or ["NIFTY", "BANKNIFTY", "SENSEX"]
+                for sym in symbols:
+                    try:
+                        a = fno_signals.full_analysis(str(sym).upper(), cfg)
+                        if a is not None:
+                            wrote = fno_history.maybe_record(a)
+                            alert = fno_alerts.check_and_notify(a, cfg, telegram_lock=_telegram_lock)
+                            if alert:
+                                print(f"[fno-tracker] ALERT {alert['symbol']}: "
+                                      f"{alert['from']} → {alert['to']} (score {alert['score']:+.2f})",
+                                      flush=True)
+                            elif wrote:
+                                print(f"[fno-tracker] {a.symbol} snapshot recorded "
+                                      f"({a.bias} {a.score:+.2f})", flush=True)
+                    except Exception:
+                        continue
+            else:
+                interval = max(interval, 600)  # market closed — check less often
+        except Exception:
+            pass
+        time.sleep(interval)
+
+
+threading.Thread(target=_fno_tracker_loop, daemon=True).start()
 
 
 if __name__ == "__main__":

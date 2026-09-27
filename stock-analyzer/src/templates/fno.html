@@ -107,6 +107,46 @@
   .diag { background: var(--panel-soft); border-radius: var(--radius-sm); padding: 12px 14px; margin: 12px 0;
           font-family: ui-monospace, "Cascadia Mono", Consolas, monospace; font-size: 12px; color: var(--text-soft);
           white-space: pre-wrap; word-break: break-word; }
+
+  /* ---- Intraday tracker ---- */
+  .spark-tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px; }
+  .spark-tile { background: var(--panel-soft); border-radius: var(--radius-sm); padding: 11px 13px; }
+  .spark-tile .k { color: var(--muted); font-size: 11px; font-weight: 600; }
+  .spark-tile .row { display: flex; align-items: flex-end; justify-content: space-between; gap: 10px; margin-top: 4px; }
+  .spark-tile .v { font-size: 17px; font-weight: 650; }
+  .spark-tile svg { display: block; }
+  .spark-tile polyline { fill: none; stroke: var(--accent); stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+  .spark-tile circle { fill: var(--accent); }
+  .shift-list { margin-top: 12px; }
+  .shift-item { display: flex; align-items: flex-start; gap: 8px; font-size: 13px; padding: 6px 0;
+                border-bottom: 1px solid var(--border-soft); color: var(--text-soft); }
+  .shift-item:last-child { border-bottom: 0; }
+  .shift-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; margin-top: 5px; background: var(--muted-soft); }
+  .shift-item.pos .shift-dot { background: var(--green-bright); }
+  .shift-item.neg .shift-dot { background: var(--red-bright); }
+
+  /* ---- Alerts + track record ---- */
+  .fno-two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  @media (max-width: 860px) { .fno-two-col { grid-template-columns: 1fr; } }
+  .alert-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 8px 0;
+               border-bottom: 1px solid var(--border-soft); font-size: 12px; }
+  .alert-row:last-child { border-bottom: 0; }
+  .alert-row .when { color: var(--muted); min-width: 88px; font-variant-numeric: tabular-nums; }
+  .alert-row .sym { font-weight: 650; min-width: 78px; }
+  .mini-bias { padding: 1px 7px; border-radius: 4px; font-size: 10px; font-weight: 700; letter-spacing: 0.03em; }
+  .mini-bias.BULLISH { background: var(--green-soft); color: var(--green); }
+  .mini-bias.BEARISH { background: var(--red-soft); color: var(--red); }
+  .mini-bias.NEUTRAL { background: var(--panel-soft); color: var(--muted); }
+  .mini-bias.RANGE-BOUND { background: var(--purple-soft); color: var(--purple); }
+  .alert-row .why { flex-basis: 100%; color: var(--muted); font-size: 11px; padding-left: 96px; }
+  @media (max-width: 640px) { .alert-row .why { padding-left: 0; } }
+
+  .track-stats { display: flex; gap: 22px; flex-wrap: wrap; margin-bottom: 10px; }
+  .track-stat .k { color: var(--muted); font-size: 11px; font-weight: 600; }
+  .track-stat .v { font-size: 17px; font-weight: 650; }
+  .track-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+  .track-table th { text-align: left; color: var(--muted); font-weight: 600; padding: 4px 8px 4px 0; border-bottom: 1px solid var(--border); }
+  .track-table td { padding: 4px 8px 4px 0; border-bottom: 1px solid var(--border-soft); font-variant-numeric: tabular-nums; }
 </style>
 
 <div class="fno-tabs" role="tablist">
@@ -313,4 +353,123 @@
   <a class="btn" href="/fno/{{ symbol }}?refresh=1"><i data-lucide="refresh-cw" aria-hidden="true"></i>Retry now</a>
 </div>
 {% endif %}
+
+<div class="card">
+  <h2><i data-lucide="timer" aria-hidden="true"></i>Intraday tracker
+    {% if shifts.available %}<span class="pill">{{ shifts.count }} snapshots since {{ shifts.since }}</span>{% endif %}
+  </h2>
+  {% if shifts.available %}
+  <div class="spark-tiles">
+    {% set s = shifts.series %}
+    {% for key, label, fmt in [("spot", "Spot", "{:,.0f}"), ("pcr", "PCR near ATM", "{:.2f}"), ("max_pain", "Max pain", "{:,.0f}"), ("atm_iv", "ATM IV %", "{:.1f}")] %}
+    {% set vals = s.get(key) or [] %}
+    {% if vals | length >= 2 %}
+    <div class="spark-tile">
+      <div class="k">{{ label }}</div>
+      <div class="row">
+        <div>
+          <div class="v">{{ fmt.format(vals[-1]) }}</div>
+          {% set d = vals[-1] - vals[0] %}
+          <div class="{{ 'pos' if d > 0 else 'neg' if d < 0 else 'neutral' }}" style="font-size:11px; font-weight:600;">
+            {{ "%+.2f" | format(d) }} since open
+          </div>
+        </div>
+        {% if sparks.get(key) %}
+        <svg width="120" height="30" aria-hidden="true">
+          <polyline points="{{ sparks[key] }}"></polyline>
+          {% set last_pt = sparks[key].rsplit(' ', 1)[-1].split(',') %}
+          <circle cx="{{ last_pt[0] }}" cy="{{ last_pt[1] }}" r="3"></circle>
+        </svg>
+        {% endif %}
+      </div>
+    </div>
+    {% endif %}
+    {% endfor %}
+  </div>
+  {% if shifts.changes %}
+  <div class="shift-list">
+    {% for c in shifts.changes %}
+    <div class="shift-item {{ c.tone }}"><span class="shift-dot" aria-hidden="true"></span><span>{{ c.text }}</span></div>
+    {% endfor %}
+  </div>
+  {% else %}
+  <div class="sub" style="margin:12px 0 0;">No significant shifts yet today — positioning is where it opened.</div>
+  {% endif %}
+  {% else %}
+  <div class="sub" style="margin:0;">
+    Collecting snapshots — the tracker records this index every few minutes during market hours
+    while the app is running ({{ shifts.count or 0 }} so far today). Shifts in PCR, walls, max pain
+    and IV appear here once there are two or more.
+  </div>
+  {% endif %}
+</div>
+
+<div class="fno-two-col">
+  <div class="card" style="margin-bottom:16px;">
+    <h2><i data-lucide="target" aria-hidden="true"></i>Signal track record <span class="pill">{{ track.days_recorded }} day{{ 's' if track.days_recorded != 1 }}</span></h2>
+    {% if track.has_any_scored %}
+    <div class="track-stats">
+      {% if track.directional.n %}
+      <div class="track-stat"><div class="k">Directional calls</div><div class="v">{{ track.directional.n }}</div></div>
+      <div class="track-stat"><div class="k">Hit rate next day</div><div class="v">{{ track.directional.hit_rate_1d }}%</div></div>
+      {% if track.directional.hit_rate_3d is not none %}
+      <div class="track-stat"><div class="k">Hit rate 3 days</div><div class="v">{{ track.directional.hit_rate_3d }}%</div></div>
+      {% endif %}
+      {% if track.directional.avg_signed_move_1d_pct is not none %}
+      <div class="track-stat"><div class="k">Avg move with signal</div>
+        <div class="v {{ 'pos' if track.directional.avg_signed_move_1d_pct > 0 else 'neg' }}">{{ "%+.2f" | format(track.directional.avg_signed_move_1d_pct) }}%</div></div>
+      {% endif %}
+      {% endif %}
+      {% if track.range.n %}
+      <div class="track-stat"><div class="k">Range calls held</div><div class="v">{{ track.range.hit_rate }}% of {{ track.range.n }}</div></div>
+      {% endif %}
+      <div class="track-stat"><div class="k">Neutral days</div><div class="v">{{ track.neutral_days }}</div></div>
+    </div>
+    <table class="track-table">
+      <thead><tr><th>Day</th><th>Signal</th><th>Next-day move</th><th>Result</th></tr></thead>
+      <tbody>
+        {% for o in track.recent %}
+        <tr>
+          <td>{{ o.day }}</td>
+          <td><span class="mini-bias {{ o.bias }}">{{ o.bias }}</span></td>
+          <td class="{{ 'pos' if o.move_pct and o.move_pct > 0 else 'neg' if o.move_pct and o.move_pct < 0 else '' }}">{{ "%+.2f" | format(o.move_pct) ~ '%' if o.move_pct is not none else "—" }}</td>
+          <td>{% if o.outcome == 'hit' %}<span class="pos">✓ hit</span>{% elif o.outcome == 'miss' %}<span class="neg">✗ miss</span>{% else %}<span class="neutral">{{ o.outcome }}</span>{% endif %}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <div class="sub" style="margin:0;">
+      Collecting history — one end-of-day signal is saved per trading day
+      ({{ track.days_recorded }} recorded so far). Outcomes appear after the next
+      trading day's close, then hit rates build up here just like the equity Accuracy page.
+    </div>
+    {% endif %}
+  </div>
+
+  <div class="card" style="margin-bottom:16px;">
+    <h2><i data-lucide="bell-ring" aria-hidden="true"></i>Recent signal changes <span class="pill">all indices</span></h2>
+    {% if alerts %}
+    {% for al in alerts %}
+    <div class="alert-row">
+      <span class="when">{{ al.ts[5:16].replace('T', ' ') }}</span>
+      <span class="sym">{{ al.symbol }}</span>
+      <span class="mini-bias {{ al['from'] }}">{{ al['from'] }}</span>
+      <span aria-hidden="true">→</span>
+      <span class="mini-bias {{ al.to }}">{{ al.to }}</span>
+      <span class="neutral">{{ "%+.2f" | format(al.score) }}</span>
+      {% if al.reason %}<span class="why">{{ al.reason }}</span>{% endif %}
+    </div>
+    {% endfor %}
+    {% else %}
+    <div class="sub" style="margin:0;">
+      No signal changes recorded yet. While the app runs, every tracked index is
+      re-checked every few minutes in market hours; a flip (say NEUTRAL → BULLISH)
+      lands here the moment it happens. Optional: set <code>fno.alerts.telegram: true</code>
+      in config.yaml to also get each flip in your Telegram Saved Messages.
+    </div>
+    {% endif %}
+  </div>
+</div>
+
 {% endblock %}

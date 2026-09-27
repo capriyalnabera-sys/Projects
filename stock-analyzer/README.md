@@ -33,6 +33,18 @@ CLI. Version 2.0 adds a complete **F&O analysis module for index options**
 - Strategy suggestions with actual strikes from the chain (bull/bear spreads,
   iron condor, straddle/strangle) picked by bias × IV regime, each with a
   defined-risk note and current lot size.
+- **Background tracker** (while the app runs, market hours): snapshots each
+  tracked index every few minutes into `data/cache/fno/history/`, powering —
+  - *Intraday tracker*: sparklines + shift readings (PCR drift, OI-wall moves,
+    max-pain drift, IV moves, intraday bias flips) since open.
+  - *Signal-change alerts*: every bias flip lands in an on-page feed
+    (`/api/fno/alerts`); optionally also DM'd to your own Telegram Saved
+    Messages (`fno.alerts.telegram: true` in config.yaml).
+  - *Signal track record*: end-of-day signals are backtested against the
+    index's actual next-1d/3d moves (directional) and expected-move ranges
+    (range-bound) — the options-side analog of the equity Accuracy page.
+  Tracked symbols/interval configurable via `fno.track_symbols` /
+  `fno.track_interval_minutes`.
 
 ## Quick start
 

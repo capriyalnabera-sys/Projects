@@ -18,6 +18,14 @@ cache:
 # F&O module. Lot sizes are exchange-notified and revised a few times a year —
 # override here when they change (no code edit needed).
 fno:
+  # Indices the background tracker snapshots during market hours (powers the
+  # intraday tracker, signal-change alerts, and the signal track record).
+  track_symbols: [NIFTY, BANKNIFTY, SENSEX]
+  track_interval_minutes: 5
+  alerts:
+    # true = also send each signal flip to your own Telegram Saved Messages
+    # (needs the telegram api_id/api_hash above to be configured).
+    telegram: false
   lot_sizes:
     NIFTY: 75
     BANKNIFTY: 35
