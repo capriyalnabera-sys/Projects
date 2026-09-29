@@ -1575,9 +1575,24 @@ threading.Thread(target=_fno_tracker_loop, daemon=True).start()
 
 if __name__ == "__main__":
     import os
+    import socket
     # Bind all interfaces so phones/tablets on the same home WiFi can reach the
     # tool at http://<PC-LAN-IP>:5000/. Localhost (127.0.0.1) still works too.
     # Access is gated by the Windows Firewall rule (Private networks only) — the
     # app itself has no auth, so keep it on trusted home networks.
     host = os.environ.get("STOCK_ANALYZER_HOST", "0.0.0.0")
+    if host == "0.0.0.0":
+        # Print the exact link a phone on the same Wi-Fi should open. The UDP
+        # connect never sends a packet — it just resolves our outbound LAN IP.
+        try:
+            _s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            _s.connect(("8.8.8.8", 80))
+            _lan_ip = _s.getsockname()[0]
+            _s.close()
+            print(f"\n  On this PC:                 http://127.0.0.1:5000/", flush=True)
+            print(f"  On your phone (same Wi-Fi): http://{_lan_ip}:5000/", flush=True)
+            print(f"  (If the phone can't connect, allow Python through Windows"
+                  f" Firewall for Private networks.)\n", flush=True)
+        except Exception:
+            pass
     app.run(host=host, port=5000, debug=False, threaded=True)
