@@ -661,6 +661,56 @@ def market():
     )
 
 
+@app.route("/opportunities")
+def opportunities_page():
+    """Setup scanners — named, criteria-driven opportunity lists over the
+    cached analysis rows, weighted by market regime."""
+    from . import opportunities, regime as regime_mod, fii_dii as fii_mod
+    cache_root = _cache_root()
+    name = request.args.get("universe", "liveset")
+    try:
+        tickers = _resolve_display_tickers(name, cache_root)
+    except ValueError:
+        return redirect(url_for("opportunities_page"))
+    rows = _rows_for(name, tickers, cache_root)
+    market_regime = _memo_get("regime", 120, regime_mod.get_regime)
+    fii_signal = _memo_get("fii", 300, fii_mod.fetch)
+
+    def _build():
+        return opportunities.scan(rows, regime=market_regime, fii=fii_signal,
+                                  fno_bias=opportunities.nifty_fno_bias())
+
+    result = _memo_get(f"opps:{name}", 300, _build)
+    universes_meta = _build_universes_meta(name, cache_root)
+    return render_template(
+        "opportunities.html",
+        r=result, universe_name=name, universes=universes_meta,
+        regime=market_regime, fii=fii_signal,
+        cached_count=len(rows), universe_total=len(tickers),
+    )
+
+
+@app.route("/api/opportunities")
+def api_opportunities():
+    """Scanner results as JSON. ?universe=liveset (default) etc."""
+    from . import opportunities, regime as regime_mod, fii_dii as fii_mod
+    cache_root = _cache_root()
+    name = request.args.get("universe", "liveset")
+    try:
+        tickers = _resolve_display_tickers(name, cache_root)
+    except ValueError:
+        abort(404)
+    rows = _rows_for(name, tickers, cache_root)
+
+    def _build():
+        return opportunities.scan(
+            rows, regime=_memo_get("regime", 120, regime_mod.get_regime),
+            fii=_memo_get("fii", 300, fii_mod.fetch),
+            fno_bias=opportunities.nifty_fno_bias())
+
+    return jsonify(_memo_get(f"opps:{name}", 300, _build))
+
+
 @app.route("/fno")
 @app.route("/fno/<symbol>")
 def fno_page(symbol: str = "NIFTY"):

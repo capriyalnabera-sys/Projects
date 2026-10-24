@@ -19,6 +19,19 @@ CLI. Version 2.0 adds a complete **F&O analysis module for index options**
   learned thresholds.
 - Trade journal, position sizer, earnings/filings/news/transcripts per stock.
 
+**Opportunities — new in 2.0** (`/opportunities`)
+- Six named setup scanners over the analyzed universe, designed by a
+  trend-trader / value-investor / risk-manager panel: Fresh Highs breakout,
+  Leader Pullback, Quality Washout, Forgotten Compounder, Paid to Wait
+  (yield+value), and Quiet Accumulation (research buzz on a flat price).
+- Every scanner has machine-checkable criteria with null handling, a
+  liquidity floor, stop/R:R discipline, and an always-visible honest caution.
+- Composite 0-100 opportunity score (verdict + conviction + risk:reward +
+  liquidity + setup strength × regime × per-stock track record) with
+  Prime/Strong/Decent bands and a deduplicated "best setups" strip.
+- Regime-aware: risk-off leads with defensive scanners and tightens breakout
+  gates; risk-on the reverse. JSON at `/api/opportunities`.
+
 **F&O — new in 2.0** (`/fno` in the web UI, `python -m src.main fno` in the CLI)
 - Live option chains from the exchanges themselves: NSE API for NIFTY /
   BANKNIFTY / FINNIFTY / MIDCPNIFTY, BSE API (best-effort) for SENSEX.

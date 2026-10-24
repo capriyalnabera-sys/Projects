@@ -1,0 +1,162 @@
+{% extends "base.html" %}
+{% block title %}Opportunities · Stock Analyzer{% endblock %}
+{% block content %}
+<style>
+  .uni-tab { padding: 6px 12px; border-radius: 8px; font-size: 12px; font-weight: 600;
+             color: var(--muted); background: var(--panel); border: 1px solid var(--border); }
+  .uni-tab:hover { color: var(--text); text-decoration: none; background: var(--panel-soft); }
+  .uni-tab.active { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+
+  .ctx-strip { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 18px;
+               background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius);
+               padding: 12px 16px; font-size: 13px; color: var(--text-soft); }
+  .ctx-pill { display: inline-flex; align-items: center; gap: 5px; padding: 3px 10px; border-radius: 6px;
+              font-size: 11px; font-weight: 700; letter-spacing: 0.03em; }
+  .ctx-pill.on   { background: var(--green-soft); color: var(--green); }
+  .ctx-pill.off  { background: var(--red-soft); color: var(--red); }
+  .ctx-pill.mid  { background: var(--yellow-soft); color: var(--yellow); }
+  .ctx-pill.info { background: var(--panel-soft); color: var(--muted); border: 1px solid var(--border); }
+
+  .opp-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  .opp-table th { text-align: right; color: var(--muted); font-weight: 600; font-size: 11px;
+                  padding: 6px 10px; border-bottom: 1px solid var(--border); white-space: nowrap; }
+  .opp-table th:first-child, .opp-table td:first-child { text-align: left; }
+  .opp-table td { padding: 7px 10px; border-bottom: 1px solid var(--border-soft); text-align: right;
+                  white-space: nowrap; font-variant-numeric: tabular-nums; }
+  .opp-table tr:hover td { background: var(--panel-soft); }
+  .opp-table .tkr { font-weight: 650; }
+  .opp-table .nm { color: var(--muted); font-size: 11px; max-width: 180px; overflow: hidden;
+                   text-overflow: ellipsis; white-space: nowrap; display: block; }
+  .setup-chip { display: inline-block; padding: 2px 8px; border-radius: 5px; font-size: 10px;
+                font-weight: 700; background: var(--accent-soft); color: var(--accent); letter-spacing: 0.02em; }
+
+  /* Opportunity score meter: filled track, label beside — state via fill level only, number carries the value. */
+  .score-cell { display: inline-flex; align-items: center; gap: 8px; }
+  .score-cell .meter { width: 64px; height: 7px; background: var(--panel-soft); border-radius: 4px; overflow: hidden; }
+  .score-cell .meter > div { height: 100%; background: var(--accent); border-radius: 4px 0 0 4px; }
+  .score-cell b { min-width: 24px; text-align: right; }
+
+  .why-chips { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 3px; }
+  .why-chip { font-size: 10px; color: var(--muted); background: var(--panel-soft); border-radius: 4px;
+              padding: 1px 7px; max-width: 320px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+  .scanner-head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+  .scanner-head .pitch { color: var(--muted); font-size: 12px; }
+  .scanner-caution { font-size: 11px; color: var(--muted); display: flex; gap: 6px; align-items: flex-start; margin-top: 10px; }
+  .scanner-caution [data-lucide] { width: 13px; height: 13px; flex-shrink: 0; margin-top: 1px; }
+  .rr-good { color: var(--green); font-weight: 650; }
+  .empty-scan { color: var(--muted); font-size: 12px; padding: 8px 0 2px; }
+</style>
+
+<div class="topbar">
+  <div>
+    <h2 style="margin:0;">Opportunities</h2>
+    <div class="sub" style="margin:4px 0 0;">
+      Setup scanners over <strong>{{ universe_name | upper }}</strong> · {{ cached_count }}/{{ universe_total }} analyzed
+      · {{ r.total_candidates }} candidate{{ 's' if r.total_candidates != 1 }} across {{ r.scanners | length }} setups
+    </div>
+  </div>
+  <div style="display:flex; gap:6px; align-items:center; flex-wrap:wrap;">
+    {% for u in universes %}
+    <a href="/opportunities?universe={{ u.name }}" class="uni-tab{% if u.active %} active{% endif %}">{{ u.label }}</a>
+    {% endfor %}
+  </div>
+</div>
+
+<div class="ctx-strip">
+  <i data-lucide="compass" aria-hidden="true"></i>
+  <b>Market context</b>
+  {% if regime and regime.state and regime.state != 'unknown' %}
+  <span class="ctx-pill {{ 'on' if regime.state == 'risk_on' else 'off' if regime.state == 'risk_off' else 'mid' }}">
+    {{ regime.state.replace('_',' ') | upper }}</span>
+  {% if regime.vix %}<span class="ctx-pill info">VIX {{ regime.vix }}</span>{% endif %}
+  {% endif %}
+  {% if fii and fii.signal and fii.signal != 'unknown' %}<span class="ctx-pill info">FII/DII {{ fii.signal }}</span>{% endif %}
+  {% if r.fno_bias %}<span class="ctx-pill {{ 'on' if r.fno_bias == 'BULLISH' else 'off' if r.fno_bias == 'BEARISH' else 'info' }}">NIFTY options {{ r.fno_bias }}</span>{% endif %}
+  <span style="color: var(--muted); font-size:12px;">{{ r.context_note }}</span>
+</div>
+
+{% if not r.has_rows %}
+<div class="card">
+  <h2><i data-lucide="database" aria-hidden="true"></i>No analyzed stocks yet</h2>
+  <div class="sub" style="margin:0 0 12px;">Scanners read the cached analysis — run a refresh on the
+    <a href="/">Recommendations</a> page first (NIFTY 50 builds automatically on first launch).</div>
+</div>
+{% else %}
+
+{% if r.top %}
+<div class="card">
+  <h2><i data-lucide="sparkles" aria-hidden="true"></i>Best setups right now <span class="pill">top {{ r.top | length }} by opportunity score</span></h2>
+  <div style="overflow-x:auto;">
+    <table class="opp-table">
+      <thead><tr>
+        <th>Stock</th><th>Setup</th><th>Close</th><th>Target</th><th>Stop</th>
+        <th>Upside</th><th>R:R</th><th>Score</th>
+      </tr></thead>
+      <tbody>
+        {% for c in r.top %}
+        <tr>
+          <td><a class="tkr" href="/stock/{{ c.ticker }}">{{ c.ticker }}</a><span class="nm">{{ c.name }}</span>
+            <div class="why-chips">{% for w in c.reasons[:2] %}<span class="why-chip">{{ w }}</span>{% endfor %}</div></td>
+          <td><span class="setup-chip">{{ c.setup_title }}</span></td>
+          <td>{{ "{:,.1f}".format(c.last_close) }}</td>
+          <td>{{ "{:,.1f}".format(c.trade_target) if c.trade_target else "—" }}</td>
+          <td>{{ "{:,.1f}".format(c.stop_loss) if c.stop_loss else "—" }}</td>
+          <td class="{{ 'pos' if c.upside_pct and c.upside_pct > 0 else '' }}">{{ "%+.1f" | format(c.upside_pct) ~ '%' if c.upside_pct is not none else "—" }}</td>
+          <td class="{{ 'rr-good' if c.rr and c.rr >= 2 else '' }}">{{ "%.1f" | format(c.rr) if c.rr else "—" }}</td>
+          <td><span class="score-cell" title="{{ c.band }}"><span class="meter"><div style="width: {{ c.opp_score }}%;"></div></span><b>{{ c.opp_score }}</b></span>
+            <div style="font-size:10px; color:var(--muted);">{{ c.band }}</div></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <div class="sub" style="margin:10px 0 0;">Decision support, not advice — computed on daily closes, so every idea is a next-session decision. Each row links to its full analysis.</div>
+</div>
+{% endif %}
+
+{% for sc in r.scanners %}
+<div class="card">
+  <div class="scanner-head">
+    <h2 style="margin:0;"><i data-lucide="{{ sc.icon }}" aria-hidden="true"></i>{{ sc.title }}
+      <span class="pill">{{ sc.candidates | length }}</span>
+      <span class="pill" style="{% if sc.group == 'Act' %}background:var(--green-soft);color:var(--green);border-color:transparent;{% elif sc.group == 'Watch' %}background:var(--yellow-soft);color:var(--yellow);border-color:transparent;{% endif %}">{{ sc.group }}</span></h2>
+    <span class="pitch">{{ sc.pitch }}</span>
+  </div>
+  {% if sc.sector_note %}
+  <div class="alert" style="margin-top:10px;"><i data-lucide="alert-triangle" aria-hidden="true"></i>{{ sc.sector_note }}</div>
+  {% endif %}
+  {% if sc.candidates %}
+  <div style="overflow-x:auto; margin-top:12px;">
+    <table class="opp-table">
+      <thead><tr>
+        <th>Stock</th><th>Close</th><th>Day</th><th>RSI</th><th>30d</th>
+        <th>Upside</th><th>R:R</th><th>₹Cr/day</th><th>Score</th>
+      </tr></thead>
+      <tbody>
+        {% for c in sc.candidates %}
+        <tr>
+          <td><a class="tkr" href="/stock/{{ c.ticker }}">{{ c.ticker }}</a><span class="nm">{{ c.name }}</span>
+            <div class="why-chips">{% for w in c.reasons %}<span class="why-chip" title="{{ w }}">{{ w }}</span>{% endfor %}</div></td>
+          <td>{{ "{:,.1f}".format(c.last_close) }}</td>
+          <td class="{{ 'pos' if c.day_change_pct and c.day_change_pct > 0 else 'neg' if c.day_change_pct and c.day_change_pct < 0 else '' }}">{{ "%+.1f" | format(c.day_change_pct) ~ '%' if c.day_change_pct is not none else "—" }}</td>
+          <td>{{ "%.0f" | format(c.rsi_14) if c.rsi_14 is not none else "—" }}</td>
+          <td class="{{ 'pos' if c.return_30d_pct and c.return_30d_pct > 0 else 'neg' if c.return_30d_pct and c.return_30d_pct < 0 else '' }}">{{ "%+.0f" | format(c.return_30d_pct) ~ '%' if c.return_30d_pct is not none else "—" }}</td>
+          <td class="{{ 'pos' if c.upside_pct and c.upside_pct > 0 else '' }}">{{ "%+.1f" | format(c.upside_pct) ~ '%' if c.upside_pct is not none else "—" }}</td>
+          <td class="{{ 'rr-good' if c.rr and c.rr >= 2 else '' }}">{{ "%.1f" | format(c.rr) if c.rr else "—" }}</td>
+          <td>{{ "%.1f" | format(c.avg_daily_value_cr) if c.avg_daily_value_cr is not none else "—" }}</td>
+          <td><span class="score-cell"><span class="meter"><div style="width: {{ c.opp_score }}%;"></div></span><b>{{ c.opp_score }}</b></span></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div class="empty-scan">No names meet these criteria right now — scanners are filters, not quotas. An empty list is information.</div>
+  {% endif %}
+  <div class="scanner-caution"><i data-lucide="alert-triangle" aria-hidden="true"></i><span><b>Caution:</b> {{ sc.caution }}</span></div>
+</div>
+{% endfor %}
+
+{% endif %}
+{% endblock %}

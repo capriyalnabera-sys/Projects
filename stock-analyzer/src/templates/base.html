@@ -349,6 +349,7 @@
       <nav class="nav-links" aria-label="Primary">
         <a href="/" class="nav-link {% if request.path == '/' %}active{% endif %}" {% if request.path == '/' %}aria-current="page"{% endif %}><i data-lucide="layout-dashboard" aria-hidden="true"></i>Recommendations</a>
         <a href="/market" class="nav-link {% if request.path.startswith('/market') %}active{% endif %}" {% if request.path.startswith('/market') %}aria-current="page"{% endif %}><i data-lucide="activity" aria-hidden="true"></i>Market Pulse</a>
+        <a href="/opportunities" class="nav-link {% if request.path.startswith('/opportunities') %}active{% endif %}" {% if request.path.startswith('/opportunities') %}aria-current="page"{% endif %}><i data-lucide="sparkles" aria-hidden="true"></i>Opportunities</a>
         <a href="/fno" class="nav-link {% if request.path.startswith('/fno') %}active{% endif %}" {% if request.path.startswith('/fno') %}aria-current="page"{% endif %}><i data-lucide="candlestick-chart" aria-hidden="true"></i>F&amp;O</a>
         <a href="/screener" class="nav-link {% if request.path.startswith('/screener') %}active{% endif %}" {% if request.path.startswith('/screener') %}aria-current="page"{% endif %}><i data-lucide="filter" aria-hidden="true"></i>Screener</a>
         <a href="/accuracy" class="nav-link {% if request.path.startswith('/accuracy') %}active{% endif %}" {% if request.path.startswith('/accuracy') %}aria-current="page"{% endif %}><i data-lucide="target" aria-hidden="true"></i>Accuracy</a>
