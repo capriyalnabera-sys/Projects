@@ -76,7 +76,14 @@ cp config.example.yaml config.yaml               # optional: Telegram creds, lot
 ```
 
 Windows launchers: `run-web.bat` (web), `run.bat` (CLI),
-`start_silent.vbs` (background). Full setup notes: `SETUP.md`.
+`start_silent.vbs` (background).
+
+**Export the website as one HTML file:** double-click `export-snapshot.bat`
+(or `python scripts/export_snapshot.py`). It renders Recommendations,
+Opportunities, F&O (NIFTY + BANKNIFTY) and Market Pulse from the latest cached
+data into a single self-contained `snapshot_<date>.html` with working in-page
+navigation — open it anywhere, or send it to your phone. Server-only actions
+(refresh, stock-detail pages) are disabled in the snapshot. Full setup notes: `SETUP.md`.
 
 ## F&O module layout
 

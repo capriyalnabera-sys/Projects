@@ -26,3 +26,6 @@ data/cache/*
 .DS_Store
 .idea/
 .vscode/
+
+# Exported website snapshots
+snapshot_*.html
