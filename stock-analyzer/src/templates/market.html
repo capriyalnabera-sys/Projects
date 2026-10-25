@@ -189,8 +189,7 @@ const HEAT_STOPS_DARK = [
 
 function heatStops() {
   // Inline theme check — base.html's helpers load after this block runs.
-  const dark = document.documentElement.dataset.theme === 'dark' ||
-    (!document.documentElement.dataset.theme && window.matchMedia('(prefers-color-scheme: dark)').matches);
+  const dark = document.documentElement.dataset.theme === 'dark';
   return dark ? HEAT_STOPS_DARK : HEAT_STOPS_LIGHT;
 }
 

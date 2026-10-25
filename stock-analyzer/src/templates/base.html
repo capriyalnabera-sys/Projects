@@ -5,8 +5,8 @@
 <title>{% block title %}Stock Analyzer{% endblock %}</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <script>
-  // Apply the saved theme BEFORE first paint to avoid a flash. No value stored
-  // means "follow the OS" (no data-theme attribute).
+  // Apply the saved theme BEFORE first paint to avoid a flash. Light is the
+  // default; dark applies only after the viewer picks it with the toggle.
   (function () {
     try {
       var t = localStorage.getItem("sa-theme");
@@ -20,8 +20,8 @@
 <style>
   /* ---- Design tokens ----------------------------------------------------
      Light and dark are each deliberately chosen (not an automatic flip).
-     Dark applies via the OS preference unless the viewer stamped a theme
-     with the toggle; the stamp wins both ways. Legacy variable names
+     Light is the default regardless of OS setting; dark applies only when
+     the viewer picks it with the header toggle (persisted per device). Legacy variable names
      (--green, --red-soft, …) are kept so every page keeps working. */
   :root {
     color-scheme: light;
@@ -62,46 +62,6 @@
     --shadow-lg: 0 4px 8px rgba(15, 20, 25, 0.05), 0 12px 28px rgba(15, 20, 25, 0.08);
     --radius: 12px;
     --radius-sm: 8px;
-  }
-  @media (prefers-color-scheme: dark) {
-    :root:where(:not([data-theme="light"])) {
-      color-scheme: dark;
-      --bg: #0d0d0d;
-      --panel: #1a1a19;
-      --panel-soft: #242422;
-      --text: #f4f4f2;
-      --text-soft: #c3c2b7;
-      --muted: #a3a29a;
-      --muted-soft: #898781;
-      --border: #2c2c2a;
-      --border-soft: #232321;
-
-      --accent: #3987e5;
-      --accent-soft: rgba(57, 135, 229, 0.16);
-      --accent-ink: #ffffff;
-
-      --green: #0ca30c;
-      --green-bright: #0ca30c;
-      --green-soft: rgba(12, 163, 12, 0.16);
-      --red: #e66767;
-      --red-bright: #d03b3b;
-      --red-soft: rgba(230, 103, 103, 0.13);
-      --yellow: #fab219;
-      --yellow-bright: #fab219;
-      --yellow-soft: rgba(250, 178, 25, 0.12);
-      --orange: #ec835a;
-      --orange-soft: rgba(236, 131, 90, 0.13);
-      --purple: #9085e9;
-      --purple-soft: rgba(144, 133, 233, 0.14);
-
-      --chart-grid: #262624;
-      --chart-tick: #898781;
-
-      --header-bg: rgba(13, 13, 13, 0.80);
-      --shadow-sm: none;
-      --shadow-md: none;
-      --shadow-lg: 0 12px 28px rgba(0, 0, 0, 0.45);
-    }
   }
   :root[data-theme="dark"] {
     color-scheme: dark;
@@ -207,10 +167,6 @@
   .theme-toggle:hover { background: var(--panel-soft); color: var(--text); }
   .theme-toggle [data-lucide="sun"] { display: none; }
   .theme-toggle [data-lucide="moon"] { display: inline-block; }
-  @media (prefers-color-scheme: dark) {
-    :root:where(:not([data-theme="light"])) .theme-toggle [data-lucide="sun"] { display: inline-block; }
-    :root:where(:not([data-theme="light"])) .theme-toggle [data-lucide="moon"] { display: none; }
-  }
   :root[data-theme="dark"] .theme-toggle [data-lucide="sun"] { display: inline-block; }
   :root[data-theme="dark"] .theme-toggle [data-lucide="moon"] { display: none; }
 
@@ -374,15 +330,13 @@
 <script>
   if (window.lucide) { lucide.createIcons(); }
 
-  // ---- Theme toggle. The stamp in localStorage wins over the OS setting;
-  // pages with charts read colors at init, so a toggle reloads the page.
+  // ---- Theme toggle (light default). Pages with charts read colors at
+  // init, so a toggle reloads the page.
   (function () {
     var btn = document.getElementById("theme-toggle");
     if (!btn) return;
     btn.addEventListener("click", function () {
-      var isDark = document.documentElement.dataset.theme === "dark" ||
-        (!document.documentElement.dataset.theme &&
-         window.matchMedia("(prefers-color-scheme: dark)").matches);
+      var isDark = document.documentElement.dataset.theme === "dark";
       var next = isDark ? "light" : "dark";
       try { localStorage.setItem("sa-theme", next); } catch (e) {}
       document.documentElement.dataset.theme = next;
@@ -395,9 +349,7 @@
     return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
   };
   window.isDarkTheme = function () {
-    return document.documentElement.dataset.theme === "dark" ||
-      (!document.documentElement.dataset.theme &&
-       window.matchMedia("(prefers-color-scheme: dark)").matches);
+    return document.documentElement.dataset.theme === "dark";
   };
 
   // Indian number format helpers — used across pages.
