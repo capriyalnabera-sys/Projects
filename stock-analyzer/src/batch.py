@@ -23,7 +23,7 @@ import json
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from datetime import datetime, timezone, date
+from datetime import datetime, timezone, date, timedelta
 from pathlib import Path
 from typing import Callable, Optional
 
@@ -143,6 +143,41 @@ def _illiquid_short_circuit(ticker: str, hist, tech, cfg: dict,
     return serialized
 
 
+class _NoData:
+    """Returned by analyze_one when Yahoo has no price history for a ticker."""
+    def __bool__(self) -> bool:  # never mistaken for a real result
+        return False
+
+
+NO_DATA = _NoData()
+
+# Tickers with no price data are skipped for this long before being rechecked.
+NO_DATA_RECHECK_DAYS = 7
+
+
+def _no_data_path(cache_root: Path) -> Path:
+    return analysis_dir(cache_root) / "_no_data.json"
+
+
+def load_no_data(cache_root: Path) -> dict[str, str]:
+    """{TICKER: 'YYYY-MM-DD' last confirmed no-data}."""
+    p = _no_data_path(cache_root)
+    if not p.exists():
+        return {}
+    try:
+        d = json.loads(p.read_text(encoding="utf-8"))
+        return d if isinstance(d, dict) else {}
+    except Exception:
+        return {}
+
+
+def save_no_data(cache_root: Path, registry: dict[str, str]) -> None:
+    try:
+        _no_data_path(cache_root).write_text(json.dumps(registry), encoding="utf-8")
+    except Exception:
+        pass
+
+
 def analyze_one(
     ticker: str,
     cfg: dict,
@@ -170,6 +205,8 @@ def analyze_one(
 
     try:
         sd = data.fetch(ticker, prefetched_history=prefetched_history)
+    except data.NoPriceHistory:
+        return NO_DATA
     except Exception:
         return None
     try:
@@ -315,10 +352,20 @@ def run_batch(
         "started_at": started_at,
     })
 
-    # First pass: figure out which tickers actually need work (TTL filter).
+    # First pass: figure out which tickers actually need work (TTL filter +
+    # names confirmed to have no price data within the last week).
+    no_data_reg = load_no_data(cache_root)
+    recheck_cutoff = (datetime.now(timezone.utc).date()
+                      - timedelta(days=NO_DATA_RECHECK_DAYS)).isoformat()
     to_process: list[str] = []
     skipped = 0
+    skipped_no_data = 0
     for t in tickers:
+        seen = no_data_reg.get(t.upper())
+        if seen and seen >= recheck_cutoff:
+            skipped += 1
+            skipped_no_data += 1
+            continue
         if ttl_minutes > 0:
             existing = read_result(t, cache_root)
             if existing:
@@ -331,8 +378,10 @@ def run_batch(
                     pass
         to_process.append(t)
 
-    done = skipped
-    failed: list[str] = []
+    done = skipped          # processed so far (drives the progress counter)
+    ok = 0                  # produced a fresh analysis this run
+    failed: list[str] = []  # transient failures — retried
+    no_data_now: list[str] = []
     progress_lock = threading.Lock()
     counter = {"i": 0}
 
@@ -365,6 +414,13 @@ def run_batch(
             write_result(result, cache_root)
         return t, result
 
+    def _status(current: str, running: bool = True) -> None:
+        write_status(cache_root, {
+            "running": running, "total": total, "done": done, "ok": ok,
+            "errors": len(failed), "no_data": len(no_data_now) + skipped_no_data,
+            "current": current, "started_at": started_at,
+        })
+
     # Per-task hard timeout — a single hung yfinance call used to freeze the
     # whole batch for hours. 45s is plenty for any one ticker's analysis.
     PER_TICKER_TIMEOUT = 45
@@ -379,18 +435,17 @@ def run_batch(
                     t, result = t_assigned, None
                 with progress_lock:
                     counter["i"] += 1
-                    if result:
-                        done += 1
+                    done += 1
+                    if result is NO_DATA:
+                        no_data_now.append(t_assigned)
+                    elif result:
+                        ok += 1
                     else:
                         failed.append(t_assigned)
                     if progress_cb:
                         progress_cb(counter["i"] + skipped, total, t_assigned)
                     if counter["i"] % 5 == 0 or counter["i"] == len(to_process):
-                        write_status(cache_root, {
-                            "running": True, "total": total, "done": done,
-                            "errors": len(failed),
-                            "current": t_assigned, "started_at": started_at,
-                        })
+                        _status(t_assigned)
         except Exception:
             # Overall as_completed timeout — cancel anything still pending
             # and let what we have be the result. Better than hanging forever.
@@ -430,20 +485,27 @@ def run_batch(
                     continue
                 with progress_lock:
                     retry_counter["i"] += 1
-                    if result:
-                        done += 1
+                    if result is NO_DATA:
+                        no_data_now.append(t)
+                    elif result:
+                        ok += 1
                     else:
                         failed.append(t)
                     if retry_counter["i"] % 3 == 0 or retry_counter["i"] == len(retry_list):
-                        write_status(cache_root, {
-                            "running": True, "total": total, "done": done,
-                            "errors": len(failed),
-                            "current": f"retry {round_idx+1}: {t} ({retry_counter['i']}/{len(retry_list)})",
-                            "started_at": started_at,
-                        })
+                        _status(f"retry {round_idx+1}: {t} ({retry_counter['i']}/{len(retry_list)})")
 
     errors = len(failed)
     elapsed = time.time() - started
+
+    # Remember confirmed no-data names (skip for a week); forget any that
+    # produced data again.
+    today_iso = datetime.now(timezone.utc).date().isoformat()
+    for t in no_data_now:
+        no_data_reg[t.upper()] = today_iso
+    for t in to_process:
+        if t not in no_data_now and read_result(t, cache_root):
+            no_data_reg.pop(t.upper(), None)
+    save_no_data(cache_root, no_data_reg)
 
     # Compute fresh sector stats from this batch's results so the NEXT batch
     # has up-to-date sector medians for relative scoring.
@@ -454,7 +516,8 @@ def run_batch(
         pass
 
     final = {
-        "running": False, "total": total, "done": done, "errors": errors,
+        "running": False, "total": total, "done": done, "ok": ok, "errors": errors,
+        "no_data": len(no_data_now) + skipped_no_data,
         "elapsed_sec": round(elapsed, 1),
         "finished_at": datetime.now(timezone.utc).isoformat(),
         "failed_tickers": failed[:50],  # store residue (capped) for diagnosis

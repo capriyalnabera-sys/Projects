@@ -5,7 +5,8 @@
   <div>
     <h2 style="margin: 0;">Today's recommendations</h2>
     <div class="sub" style="margin: 4px 0 0;">
-      Universe: <strong>{{ universe_name | upper }}</strong> · {{ cached_count }}/{{ universe_total }} cached
+      Universe: <strong>{{ universe_name | upper }}</strong> · {{ cached_count }}/{{ universe_total }} analyzed
+      {% if no_data_count %}· <span title="Suspended, delisted or dormant listings — rechecked weekly">{{ no_data_count }} have no price data</span>{% endif %}
       {% if rows %} · avg score <strong class="{% if avg_score > 0 %}pos{% elif avg_score < 0 %}neg{% endif %}">{{ '{:+.2f}'.format(avg_score) }}</strong>{% endif %}
       {% if status.running %}· <span style="color: var(--yellow);">refreshing {{ status.done }}/{{ status.total }}</span>
       {% elif status.finished_at %}· last refresh {{ status.elapsed_sec }}s ago{% endif %}
@@ -18,7 +19,7 @@
     {% endfor %}
     <button onclick="refresh()" class="secondary" style="margin-left: 8px;" title="Refresh only the currently-selected universe"><i data-lucide="refresh-cw"></i>Refresh</button>
     <button onclick="refreshAll()" class="secondary" title="Refresh NIFTY 50 + SENSEX + the full NSE+BSE live set (~1,900 tradeable names)"><i data-lucide="refresh-ccw-dot"></i>Refresh all</button>
-    <button onclick="fullSweep()" class="secondary" title="Sweep ALL ~5,000 NSE+BSE listed names (slow, ~15–25 min). Rebuilds the live set so future refreshes stay fast."><i data-lucide="globe"></i>Full sweep</button>
+    <button onclick="fullSweep()" class="secondary" title="Analyze every NSE+BSE listed name. Names with no price data are skipped for a week, and running it again the same day only fills in stocks that were missed."><i data-lucide="globe"></i>Full sweep</button>
     <a href="/screener" class="nav-link" title="Opens the full NSE+BSE tradeable set"><i data-lucide="filter"></i>Full screener</a>
   </div>
 </div>
@@ -237,8 +238,8 @@ function refreshAll() {
     });
 }
 function fullSweep() {
-  if (!confirm('Full sweep of ALL ~5,000 NSE+BSE listed names?\n\nThis is slow (~15–25 min) and most BSE micro-caps will be illiquid/no-data. ' +
-    'Afterwards, routine "Refresh" of this universe only re-runs the proven-liquid live set (fast).\n\nProceed?')) return;
+  if (!confirm('Full sweep of every NSE+BSE listed name?\n\nThe first sweep is slow. Later sweeps skip names with no price data (rechecked weekly), ' +
+    'and running it again the same day only fills in stocks that were missed.\n\nProceed?')) return;
   // The sweep always targets the full NSE+BSE listed set, whatever tab is
   // active; jump to that tab so the progress being watched is the sweep's.
   fetch('/api/refresh?universe=alllisted&full=1', { method: 'POST' })

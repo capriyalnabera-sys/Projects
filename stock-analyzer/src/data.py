@@ -17,7 +17,10 @@ if TYPE_CHECKING:
 # yfinance.info is one HTTP request per ticker (~1-2s); a 30-min cache lets
 # subsequent batches skip the call entirely for stocks already seen.
 INFO_CACHE_DIR = Path("data/cache/yf_info")
-INFO_CACHE_TTL_SECONDS = 30 * 60
+# Fundamentals / name / sector change slowly and price comes from the history
+# fetch, so one .info call per ticker per day is enough. A 30-min TTL made
+# every refresh re-pay ~1.5s × ~1,900 tickers.
+INFO_CACHE_TTL_SECONDS = 20 * 60 * 60
 
 # Per-ticker history cache (parquet would be smaller but JSON keeps zero deps).
 # Used by /api/chart and other live paths to avoid re-fetching the same 2y of
@@ -90,6 +93,12 @@ def to_yf_symbol(ticker: str) -> str:
     return f"{t}.NS"
 
 
+class NoPriceHistory(ValueError):
+    """Yahoo has no price history for this symbol (delisted, suspended, dead
+    BSE shell). Permanent until proven otherwise — batch runs record these
+    and skip them for a week instead of retrying them every sweep."""
+
+
 @dataclass
 class StockData:
     ticker: str
@@ -123,13 +132,13 @@ def fetch(
     else:
         hist = yt.history(period=period, interval=interval, auto_adjust=False)
     if hist is None or hist.empty:
-        raise ValueError(f"No price history for {sym}")
+        raise NoPriceHistory(f"No price history for {sym}")
     # Drop rows where Close is NaN — yfinance bulk download sometimes returns
     # NaN for the most recent bar on weekends/holidays/before-close. Keeping
     # NaN there poisons last_close, technical indicators, and the JSON cache.
     hist = hist.dropna(subset=["Close"])
     if hist.empty:
-        raise ValueError(f"No valid Close prices for {sym}")
+        raise NoPriceHistory(f"No valid Close prices for {sym}")
 
     # Try the disk cache first — saves the slowest part of fetch (~1-2s per call).
     info = _read_cached_info(ticker) or {}
@@ -155,7 +164,7 @@ def fetch(
 
 # yfinance chokes on very large symbol lists in one call (URL length / timeout /
 # partial failures that nuke the whole response). Chunk big universes.
-BULK_CHUNK_SIZE = 200
+BULK_CHUNK_SIZE = 100
 
 
 def bulk_fetch_histories(tickers: list[str], period: str = "2y") -> dict[str, "pd.DataFrame"]:
@@ -165,13 +174,29 @@ def bulk_fetch_histories(tickers: list[str], period: str = "2y") -> dict[str, "p
     """
     if not tickers:
         return {}
-    if len(tickers) <= BULK_CHUNK_SIZE:
-        return _bulk_fetch_chunk(tickers, period)
+    out = _bulk_fetch_all(tickers, period)
+    # Second pass for names a throttled/failed chunk dropped. Yahoo rate-limits
+    # big sweeps; without this every dropped name fell back to a slow
+    # one-at-a-time fetch in the batch. Truly dead symbols just miss again —
+    # cheap, since it's still a bulk call.
+    missing = [t for t in tickers if t.upper() not in out]
+    if missing and len(missing) < len(tickers):
+        time.sleep(5)
+        out.update(_bulk_fetch_all(missing, period))
+    return out
+
+
+def _bulk_fetch_all(tickers: list[str], period: str) -> dict[str, "pd.DataFrame"]:
     out: dict[str, "pd.DataFrame"] = {}
     for i in range(0, len(tickers), BULK_CHUNK_SIZE):
         chunk = tickers[i:i + BULK_CHUNK_SIZE]
         try:
-            out.update(_bulk_fetch_chunk(chunk, period))
+            got = _bulk_fetch_chunk(chunk, period)
+            if not got and len(chunk) > 1:
+                # Whole chunk empty = throttled or timed out, not "all dead".
+                time.sleep(3)
+                got = _bulk_fetch_chunk(chunk, period)
+            out.update(got)
         except Exception:
             # One bad chunk shouldn't sink the rest of the universe.
             continue

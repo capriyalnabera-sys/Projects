@@ -206,7 +206,12 @@ def _resolve_display_tickers(name: str, cache_root: Path) -> list[str]:
     mean thousands of disk reads per page load and a meaningless wall of
     illiquid shells. Returns [] for the big universe before any full sweep
     has run (the dashboard then prompts the user to run one)."""
-    if name.lower().replace("_", "") in _BIG_UNIVERSES:
+    key = name.lower().replace("_", "")
+    if key in _BIG_UNIVERSES:
+        # ALL UNIVERSE: every listed name — the page shows each one that has
+        # an analysis, including thinly traded names the live set leaves out.
+        return universe.load_all_listed_cached(cache_root / "universe")
+    if key in ("liveset", "live", "nsebselive", "tradeable"):
         return universe.load_live_set(cache_root / "universe") or []
     return universe.get_universe(name, cache_dir=cache_root / "universe")
 
@@ -420,6 +425,8 @@ def index():
         high_upside=high_upside, oversold=oversold,
         most_discussed=most_discussed,
         cached_count=len(rows), universe_total=universe_total,
+        no_data_count=(len(batch.load_no_data(cache_root))
+                       if name.lower().replace("_", "") in _BIG_UNIVERSES else 0),
         verdict_counts=verdict_counts, total_verdict=total_with_verdict,
         avg_score=avg_score,
         regime=market_regime,
@@ -1324,6 +1331,8 @@ def _refresh_worker(name: str, ttl_minutes: int, with_telegram: bool = True,
     # time. A "full sweep" re-runs the entire universe and rebuilds the live set.
     is_big = name.lower().replace("_", "") in ("alllisted", "allnse", "allbse", "nsebse", "everylisted")
     full_universe = list(tickers)
+    if is_big and full_sweep and ttl_minutes <= 0:
+        ttl_minutes = 6 * 60
     if is_big and not full_sweep:
         live = universe.load_live_set(cache_root / "universe")
         if live:

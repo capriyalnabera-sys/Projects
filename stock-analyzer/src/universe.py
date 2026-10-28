@@ -265,6 +265,18 @@ def get_all_listed(cache_dir: Optional[Path] = None) -> list[str]:
     return tickers
 
 
+def load_all_listed_cached(cache_dir: Optional[Path] = None) -> list[str]:
+    """The full NSE+BSE listing from disk only, whatever its age — for page
+    rendering, which must never block on the exchange downloads that
+    get_all_listed() does when its cache is stale."""
+    if cache_dir is None:
+        cache_dir = Path("data/cache/universe")
+    try:
+        return json.loads((cache_dir / "_all_listed.json").read_text(encoding="utf-8"))
+    except Exception:
+        return []
+
+
 # --------------------------------------------------------------------------
 # Live set — the subset of a big universe that actually had data + cleared the
 # liquidity floor on the last full sweep. Routine refreshes re-run only this,
