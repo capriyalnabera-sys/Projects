@@ -99,6 +99,35 @@ class NoPriceHistory(ValueError):
     and skip them for a week instead of retrying them every sweep."""
 
 
+def history_strict(yt, period: str = "2y", interval: str = "1d") -> pd.DataFrame:
+    """yt.history() that tells "Yahoo has no data" apart from "the request
+    failed". By default yfinance swallows network errors and returns an empty
+    frame with a "possibly delisted" log line — indistinguishable from a dead
+    symbol. Here a genuine missing-prices answer raises NoPriceHistory and
+    anything else (throttling, timeouts, connection drops) propagates as a
+    retryable error."""
+    import warnings
+    try:
+        from yfinance.exceptions import YFPricesMissingError, YFTzMissingError
+    except Exception:  # very old yfinance: no typed errors to distinguish
+        return yt.history(period=period, interval=interval, auto_adjust=False)
+    try:
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", DeprecationWarning)
+            return yt.history(period=period, interval=interval, auto_adjust=False,
+                              raise_errors=True)
+    except TypeError:
+        # yfinance without raise_errors: fall back to the lenient call.
+        return yt.history(period=period, interval=interval, auto_adjust=False)
+    except (YFPricesMissingError, YFTzMissingError) as e:
+        msg = str(e)
+        # A Yahoo 5xx/429 surfaced as "prices missing" is a failed request,
+        # not a dead symbol.
+        if "status_code = 5" in msg or "status_code = 429" in msg:
+            raise ConnectionError(msg)
+        raise NoPriceHistory(msg)
+
+
 @dataclass
 class StockData:
     ticker: str
@@ -130,7 +159,7 @@ def fetch(
     if prefetched_history is not None and not prefetched_history.empty:
         hist = prefetched_history
     else:
-        hist = yt.history(period=period, interval=interval, auto_adjust=False)
+        hist = history_strict(yt, period=period, interval=interval)
     if hist is None or hist.empty:
         raise NoPriceHistory(f"No price history for {sym}")
     # Drop rows where Close is NaN — yfinance bulk download sometimes returns

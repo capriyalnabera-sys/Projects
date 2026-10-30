@@ -156,7 +156,15 @@ NO_DATA_RECHECK_DAYS = 7
 
 
 def _no_data_path(cache_root: Path) -> Path:
-    return analysis_dir(cache_root) / "_no_data.json"
+    # v2: the v1 registry could contain throttled names misread as "no data"
+    # (yfinance hid the network error), so it is discarded rather than trusted.
+    old = analysis_dir(cache_root) / "_no_data.json"
+    if old.exists():
+        try:
+            old.unlink()
+        except Exception:
+            pass
+    return analysis_dir(cache_root) / "_no_data_v2.json"
 
 
 def load_no_data(cache_root: Path) -> dict[str, str]:
@@ -454,7 +462,8 @@ def run_batch(
                     f.cancel()
 
     # Retry pass for transient failures — also parallel.
-    backoffs = [10, 25]
+    # Throttling windows last minutes, so short backoffs just get throttled again.
+    backoffs = [20, 60]
     for round_idx, sleep_secs in enumerate(backoffs):
         if not failed:
             break
