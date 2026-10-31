@@ -32,6 +32,17 @@ CLI. Version 2.0 adds a complete **F&O analysis module for index options**
 - Regime-aware: risk-off leads with defensive scanners and tightens breakout
   gates; risk-on the reverse. JSON at `/api/opportunities`.
 
+**Price data — exchange daily files**
+- Price history comes from NSE's and BSE's own daily price files
+  (bhavcopies), which list every traded stock — the whole ~5,100-name
+  universe without per-stock requests or Yahoo throttling. Split/bonus
+  ex-dates are adjusted using the exchange's own adjusted previous close.
+- First launch downloads ~2 years in the background (a few minutes);
+  afterwards one file per exchange per day. Yahoo fills in anything the
+  files don't cover and still supplies fundamentals. If an exchange is
+  unreachable the app gives up quickly, retries an hour later, and uses
+  Yahoo meanwhile. Settings under `prices:` in config.yaml.
+
 **F&O — new in 2.0** (`/fno` in the web UI, `python -m src.main fno` in the CLI)
 - Live option chains from the exchanges themselves: NSE API for NIFTY /
   BANKNIFTY / FINNIFTY / MIDCPNIFTY, BSE API (best-effort) for SENSEX.

@@ -200,6 +200,14 @@ def _rows_for(name: str, tickers: list[str], cache_root: Path) -> list[dict]:
     return _memo_get(f"rows:{name}", 600, _build)
 
 
+def _price_sources() -> list[dict]:
+    try:
+        from . import exchange_prices
+        return exchange_prices.summary()
+    except Exception:
+        return []
+
+
 def _resolve_display_tickers(name: str, cache_root: Path) -> list[str]:
     """Tickers to DISPLAY for a universe. For the big NSE+BSE universe this is
     the live set (proven-liquid subset) — never the full ~5,000, which would
@@ -427,6 +435,7 @@ def index():
         cached_count=len(rows), universe_total=universe_total,
         no_data_count=(len(batch.load_no_data(cache_root))
                        if name.lower().replace("_", "") in _BIG_UNIVERSES else 0),
+        price_sources=_price_sources(),
         verdict_counts=verdict_counts, total_verdict=total_with_verdict,
         avg_score=avg_score,
         regime=market_regime,
@@ -1630,6 +1639,23 @@ def _fno_tracker_loop():
 
 
 threading.Thread(target=_fno_tracker_loop, daemon=True).start()
+
+
+def _prices_update_loop():
+    """Keep the exchange daily price files current: first run downloads ~2
+    years in the background; afterwards each check is a no-op until the
+    next day's files are published (evening IST)."""
+    from . import exchange_prices
+    time.sleep(10)
+    while True:
+        try:
+            exchange_prices.ensure_updated(_load_config())
+        except Exception as e:
+            print(f"[prices] background update failed: {e}", flush=True)
+        time.sleep(3 * 60 * 60)
+
+
+threading.Thread(target=_prices_update_loop, daemon=True).start()
 
 
 if __name__ == "__main__":

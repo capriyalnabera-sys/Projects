@@ -32,3 +32,12 @@ fno:
     FINNIFTY: 65
     MIDCPNIFTY: 140
     SENSEX: 20
+
+
+# Price history source. The exchanges' own daily price files cover every
+# listed stock (no per-stock requests, no Yahoo throttling). The first run
+# downloads ~2 years in the background; Yahoo fills in anything not covered.
+prices:
+  nse_files: true
+  bse_files: true
+  history_calendar_days: 760

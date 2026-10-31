@@ -401,7 +401,45 @@ def run_batch(
         "current": f"bulk-fetching {len(to_process)} histories",
         "started_at": started_at,
     })
-    histories = data.bulk_fetch_histories(to_process, period="2y") if to_process else {}
+    histories: dict = {}
+    if to_process:
+        # Exchange daily price files first — they cover the whole NSE/BSE
+        # listing in one place. Yahoo only fills in what they don't cover.
+        try:
+            from . import exchange_prices
+            histories = exchange_prices.histories_for(
+                to_process, cfg,
+                progress=lambda msg: write_status(cache_root, {
+                    "running": True, "total": total, "done": done, "errors": 0,
+                    "current": msg, "started_at": started_at,
+                }))
+        except Exception as e:
+            print(f"[prices] exchange files unavailable: {type(e).__name__}: {e}", flush=True)
+            histories = {}
+        rest = [t for t in to_process if t.upper() not in histories]
+        if rest:
+            write_status(cache_root, {
+                "running": True, "total": total, "done": done, "errors": 0,
+                "current": f"fetching {len(rest)} histories from Yahoo",
+                "started_at": started_at,
+            })
+            histories.update(data.bulk_fetch_histories(rest, period="2y"))
+
+    # Company names from the exchange files, for rows Yahoo couldn't name.
+    try:
+        from . import exchange_prices as _ep
+        _names = {"NSE": _ep.names("NSE"), "BSE": _ep.names("BSE")}
+    except Exception:
+        _names = {"NSE": {}, "BSE": {}}
+
+    def _fill_name(result: dict) -> None:
+        tk = (result.get("ticker") or "").upper()
+        if result.get("name") and result["name"].upper() != tk:
+            return
+        n = (_names["BSE"].get(tk[:-3]) if tk.endswith(".BO")
+             else _names["NSE"].get(tk.replace(".NS", "")))
+        if n:
+            result["name"] = n
 
     # Load PRIOR sector stats (computed from last batch's results). We use
     # last batch's distribution for relative scoring on this batch — slight lag
@@ -419,6 +457,7 @@ def run_batch(
             sector_stats=sector_stats,
         )
         if result:
+            _fill_name(result)
             write_result(result, cache_root)
         return t, result
 
@@ -482,6 +521,7 @@ def run_batch(
                 sector_stats=sector_stats,
             )
             if result:
+                _fill_name(result)
                 write_result(result, cache_root)
             return t, result
 

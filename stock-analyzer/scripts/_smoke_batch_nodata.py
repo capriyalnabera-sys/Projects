@@ -14,6 +14,10 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
 from src import batch, data  # noqa: E402
+from src import exchange_prices  # noqa: E402
+
+# Keep this test on the Yahoo path and away from the real price-file store.
+exchange_prices.histories_for = lambda *a, **k: {}
 
 batch.time.sleep = lambda s: None   # retry backoffs are 10s/25s — skip them
 data.time.sleep = lambda s: None

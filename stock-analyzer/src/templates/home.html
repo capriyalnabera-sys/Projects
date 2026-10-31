@@ -10,6 +10,9 @@
       {% if rows %} · avg score <strong class="{% if avg_score > 0 %}pos{% elif avg_score < 0 %}neg{% endif %}">{{ '{:+.2f}'.format(avg_score) }}</strong>{% endif %}
       {% if status.running %}· <span style="color: var(--yellow);">refreshing {{ status.done }}/{{ status.total }}</span>
       {% elif status.finished_at %}· last refresh {{ status.elapsed_sec }}s ago{% endif %}
+      {% if price_sources %}
+      <div style="margin-top:2px;">Prices: {% for s in price_sources %}{{ s.exchange }} daily files to {{ s.last }} ({{ s.days }} days){% if s.stale %} <span style="color: var(--yellow);">— out of date, using Yahoo</span>{% endif %}{% if not loop.last %} · {% endif %}{% endfor %}</div>
+      {% endif %}
       {% if not status.running and status.ok is defined %}
       <div style="margin-top:2px;">Last run: {{ status.ok }} analyzed · {{ status.no_data or 0 }} no price data{% if status.errors %} · <span style="color: var(--yellow);">{{ status.errors }} failed (Yahoo throttling or network) — run it again to fill these in</span>{% endif %}</div>
       {% endif %}
