@@ -55,6 +55,28 @@ def _close_at(history, target_date: date) -> Optional[float]:
     return None
 
 
+def _histories_for_accuracy(tickers: list[str], period: str, cache_root: Path) -> dict:
+    """Price history for the backtest without re-downloading what's on disk.
+    The exchange daily files already hold ~2 years for every listed stock;
+    Yahoo is asked only for what they don't cover, and never for stocks the
+    batch has confirmed have no price data."""
+    out: dict = {}
+    try:
+        from . import exchange_prices
+        out = exchange_prices.histories_for(tickers, update_first=False)
+    except Exception:
+        out = {}
+    try:
+        from . import batch
+        dead = set(batch.load_no_data(cache_root))
+    except Exception:
+        dead = set()
+    rest = [t for t in tickers if t.upper() not in out and t.upper() not in dead]
+    if rest:
+        out.update(data_mod.bulk_fetch_histories(rest, period=period))
+    return out
+
+
 def evaluate(snap_dir: Path, horizons_days: tuple[int, ...] = (5, 20, 60), force: bool = False, stale_ok: bool = False) -> dict:
     """Walk-forward backtest of past verdicts.
 
@@ -102,7 +124,7 @@ def evaluate(snap_dir: Path, horizons_days: tuple[int, ...] = (5, 20, 60), force
     earliest = min(d for _, d, _ in rows)
     span_days = (today - earliest).days + max(horizons_days) + 5
     period = f"{max(span_days, 60)}d"
-    price_cache = data_mod.bulk_fetch_histories(sorted(tickers_seen), period=period)
+    price_cache = _histories_for_accuracy(sorted(tickers_seen), period, snap_dir.parent)
 
     # Bucket realized returns by verdict and horizon
     buckets: dict[tuple[str, int], list[float]] = defaultdict(list)

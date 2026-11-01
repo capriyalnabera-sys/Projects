@@ -1336,7 +1336,7 @@ def _build_aliases_from_cache(tickers: list[str], cache_root: Path) -> dict[str,
 
 
 def _refresh_worker(name: str, ttl_minutes: int, with_telegram: bool = True,
-                    full_sweep: bool = False):
+                    full_sweep: bool = False, force: bool = False):
     cache_root = _cache_root()
     cfg = _load_config()
     try:
@@ -1395,18 +1395,64 @@ def _refresh_worker(name: str, ttl_minutes: int, with_telegram: bool = True,
                     tg_signals = {}
         return tg_signals
 
-    tg_signals = _side.submit(_scan_research)
-    batch.run_batch(tickers, cfg, cache_root, tg_signals=tg_signals, ttl_minutes=ttl_minutes, regime=regime)
+    tg_signals = _side.submit(_cached_research_scan, cache_root, cfg, tickers, _scan_research)
+    result = batch.run_batch(tickers, cfg, cache_root, tg_signals=tg_signals,
+                             ttl_minutes=ttl_minutes, regime=regime, skip_unchanged=not force)
     _side.shutdown(wait=False)
-    # Fresh verdicts just landed — drop memoized rows/counts so pages show them,
-    # then rebuild the hot pages in the background so no visitor eats the cold render.
+    _after_refresh(result)
+
+
+def _cached_research_scan(cache_root: Path, cfg: dict, tickers: list[str], scan_fn) -> dict:
+    """Run the Telegram research scan, or reuse one from the last hour that
+    covered the same stocks and look-back. Rescanning groups minutes after the
+    last scan returns the same signals."""
+    tcfg = cfg.get("telegram", {}) or {}
+    ttl = int(tcfg.get("cache_minutes", 60))
+    days = int(tcfg.get("scan_days", 0) or 0)
+    want = {t.upper() for t in tickers}
+    p = cache_root / "telegram_signals_cache.json"
+    try:
+        d = json.loads(p.read_text(encoding="utf-8"))
+        if (time.time() - d["ts"] < ttl * 60 and d.get("days") == days
+                and want <= set(d.get("tickers", []))):
+            return {tk: TelegramSignal(**v) for tk, v in d["signals"].items() if tk in want}
+    except Exception:
+        pass
+    signals = scan_fn()
+    if signals:                      # never cache a failed or unconfigured scan
+        try:
+            from dataclasses import asdict
+            p.write_text(json.dumps({"ts": time.time(), "days": days, "tickers": sorted(want),
+                                     "signals": {k: asdict(v) for k, v in signals.items()}}),
+                         encoding="utf-8")
+        except Exception:
+            pass
+    return signals
+
+
+def _after_refresh(result: Optional[dict]) -> None:
+    """Follow-up work after a batch — only when it actually changed something.
+    A refresh where every stock was unchanged leaves pages, accuracy and
+    calibration exactly as they were, so there is nothing to redo."""
+    if not result or not result.get("ok"):
+        return
+    # Fresh verdicts: drop memoized rows so pages show them, and re-render the
+    # hot pages in the background so no visitor pays the cold render.
     _memo_clear()
     threading.Thread(target=_prewarm_pages_async, daemon=True).start()
-    # Precompute accuracy in background so /accuracy is instant on next visit.
-    threading.Thread(target=_precompute_accuracy_async, daemon=True).start()
-    # Recompute self-calibration from the fresh accuracy data — feeds the
-    # learned BUY-threshold and per-sector confidence chips into the NEXT batch.
-    threading.Thread(target=_recompute_calibration_async, daemon=True).start()
+    # Accuracy, THEN calibration from its fresh output — in one thread. Run
+    # side by side, calibration either read the previous accuracy or, when
+    # that was over an hour old, started a second full rebuild of its own.
+    threading.Thread(target=_learn_from_snapshots, daemon=True).start()
+
+
+def _learn_from_snapshots() -> None:
+    _precompute_accuracy_async()
+    try:
+        from . import calibration
+        calibration.compute(_cache_root() / "snapshots", force=True, stale_ok=True)
+    except Exception:
+        pass
 
 
 def _precompute_accuracy_async():
@@ -1429,7 +1475,7 @@ def _recompute_calibration_async():
         pass
 
 
-def _refresh_all_worker(ttl_minutes: int, with_telegram: bool):
+def _refresh_all_worker(ttl_minutes: int, with_telegram: bool, force: bool = False):
     """Refresh every unique ticker across every configured universe.
     Telegram scan runs once for the combined set, then a single batch."""
     cache_root = _cache_root()
@@ -1492,31 +1538,12 @@ def _refresh_all_worker(ttl_minutes: int, with_telegram: bool):
                         pass
         return tg_signals
 
-    tg_signals = _side.submit(_scan_research)
-    batch.run_batch(tickers, cfg, cache_root, tg_signals=tg_signals, ttl_minutes=ttl_minutes, regime=regime)
+    tg_signals = _side.submit(_cached_research_scan, cache_root, cfg, tickers, _scan_research)
+    result = batch.run_batch(tickers, cfg, cache_root, tg_signals=tg_signals,
+                             ttl_minutes=ttl_minutes, regime=regime, skip_unchanged=not force)
     _side.shutdown(wait=False)
 
-    # After a FULL sweep of the big universe, rebuild the live set so future
-    # routine refreshes only re-run the names that had data + cleared the
-    # liquidity floor.
-    if is_big and full_sweep:
-        try:
-            floor = batch._liquidity_floor(cfg)
-            live = batch.compute_live_set(full_universe, cache_root, min_turnover_cr=floor)
-            if live:
-                universe.save_live_set(live, cache_root / "universe")
-        except Exception:
-            pass
-
-    # Fresh verdicts just landed — drop memoized rows/counts so pages show them,
-    # then rebuild the hot pages in the background so no visitor eats the cold render.
-    _memo_clear()
-    threading.Thread(target=_prewarm_pages_async, daemon=True).start()
-    # Precompute accuracy in background so /accuracy is instant on next visit.
-    threading.Thread(target=_precompute_accuracy_async, daemon=True).start()
-    # Recompute self-calibration from the fresh accuracy data — feeds the
-    # learned BUY-threshold and per-sector confidence chips into the NEXT batch.
-    threading.Thread(target=_recompute_calibration_async, daemon=True).start()
+    _after_refresh(result)
 
 
 def _persist_research_per_ticker(agg, cache_root: Path) -> None:
@@ -1565,11 +1592,13 @@ def api_refresh():
     # rebuilds the live set. Without it, the big universe refreshes only its
     # proven-liquid live subset.
     full_sweep = request.args.get("full", "0") == "1"
+    # force=1 re-analyzes every stock even if its inputs haven't changed.
+    force = request.args.get("force", "0") == "1"
     with _refresh_lock:
         if _refresh_thread and _refresh_thread.is_alive():
             return jsonify({"started": False, "reason": "refresh already running"}), 409
         _refresh_thread = threading.Thread(
-            target=_refresh_worker, args=(name, ttl, use_tg, full_sweep), daemon=True
+            target=_refresh_worker, args=(name, ttl, use_tg, full_sweep, force), daemon=True
         )
         _refresh_thread.start()
     return jsonify({"started": True, "universe": name, "ttl_minutes": ttl,
@@ -1583,11 +1612,12 @@ def api_refresh_all():
     global _refresh_thread
     ttl = int(request.args.get("ttl_minutes", "0") or 0)
     use_tg = request.args.get("telegram", "1") == "1"
+    force = request.args.get("force", "0") == "1"
     with _refresh_lock:
         if _refresh_thread and _refresh_thread.is_alive():
             return jsonify({"started": False, "reason": "refresh already running"}), 409
         _refresh_thread = threading.Thread(
-            target=_refresh_all_worker, args=(ttl, use_tg), daemon=True
+            target=_refresh_all_worker, args=(ttl, use_tg, force), daemon=True
         )
         _refresh_thread.start()
     return jsonify({"started": True, "scope": "all-universes", "ttl_minutes": ttl, "telegram": use_tg})

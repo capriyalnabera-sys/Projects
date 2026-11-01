@@ -194,11 +194,30 @@ def main() -> None:
         ep.ensure_updated = lambda *a, **k: []   # store is current for the refresh runs
         results.append(run("cold refresh (first of the day)", listed))
         results.append(run("warm refresh (same day again)", listed))
-        # Next day: Yahoo .info (20 h cache) has expired; screener.in (3 days)
-        # and earnings dates (7 days) are still cached. With the old 24 h TTLs
-        # all three expired, so the old code's next-day refresh == its cold one.
-        shutil.rmtree(Path("data/cache/yf_info"), ignore_errors=True)
-        results.append(run("next-day refresh (Yahoo info expired)", listed))
+        # Next day: a new price file arrives (every stock has a new bar) and,
+        # with .info TTLs staggered over 5-9 days, ~1/7 of info caches expire;
+        # screener.in (3 days) and earnings (7 days / NSE calendar) still hold.
+        # With the old 24 h TTLs everything expired, so the old code's next-day
+        # refresh == its cold one.
+        import zlib
+        next_day = days[-1] + timedelta(days=1)
+        while next_day.weekday() >= 5:
+            next_day += timedelta(days=1)
+        for exch in ("NSE", "BSE"):
+            d = ep.STORE_DIR / exch
+            last = sorted(d.glob("????-??-??.csv.gz"))[-1]
+            df = pd.read_csv(last)
+            df["prev_close"] = df["close"]
+            df["close"] = (df["close"] * 1.004).round(2)
+            with gzip.open(d / f"{next_day.isoformat()}.csv.gz", "wt", newline="") as f:
+                df.to_csv(f, index=False)
+        info_dir = Path("data/cache/yf_info")
+        expired = [f for f in info_dir.glob("*.json") if zlib.crc32(f.stem.encode()) % 7 == 0]
+        for f in expired:
+            f.unlink()
+        print(f"\n(next day: new price file {next_day}; {len(expired)} info caches expired)")
+        ep.DEFAULT_CALENDAR_DAYS += 3
+        results.append(run("next-day refresh (new prices, ~1/7 info expired)", listed))
         print("\nSUMMARY " + json.dumps({r["label"]: round(r["wall"], 1) for r in results}))
     finally:
         os.chdir(ROOT)

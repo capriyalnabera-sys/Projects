@@ -70,6 +70,7 @@ DEFAULT_CALENDAR_DAYS = 760      # ≈ 2 years + buffer → ~520 trading days
 STALE_AFTER_DAYS = 6             # store older than this → don't trust it
 MIN_ROWS = 20                    # fewer bars than this → let Yahoo try
 GIVE_UP_AFTER = 10               # consecutive failures with nothing saved → stop
+PUBLISH_TIME_IST = (18, 30)      # the day's files appear ~6-7 pm IST
 RETRY_COOLDOWN_MIN = 60          # after giving up, wait this long before retrying
 SERIES_RANK = {"EQ": 0, "BE": 1, "BZ": 2, "SM": 3, "ST": 4, "SZ": 5}
 
@@ -333,11 +334,15 @@ def update(exch: str, calendar_days: int = DEFAULT_CALENDAR_DAYS,
     missing_path = _dir(exch) / "_missing.json"
     known_missing = _read_json(missing_path)
     wanted = []
+    now = datetime.now(IST)
+    published_today = (now.hour, now.minute) >= PUBLISH_TIME_IST
     for i in range(calendar_days, -1, -1):
         d = today - timedelta(days=i)
         iso = d.isoformat()
         if d.weekday() >= 5 or iso in have or iso in known_missing:
             continue
+        if d == today and not published_today:
+            continue                 # not out yet: asking only gets "not found"
         wanted.append(d)
     result = {"exchange": exch, "wanted": len(wanted), "ok": 0, "missing": 0,
               "errors": 0, "blocked": False, "gave_up": False}
@@ -471,9 +476,61 @@ def ensure_updated(cfg: Optional[dict] = None, exchanges: Optional[list[str]] = 
 # Histories for the batch
 # ---------------------------------------------------------------------------
 
+def _panel_path(exch: str) -> Path:
+    return STORE_DIR / exch / "_panel.pkl"
+
+
+def _panel(exch: str, days: list[str]) -> pd.DataFrame:
+    """Every stored day for an exchange in one frame, kept on disk as a single
+    pickle and updated incrementally — so a refresh reads one file instead of
+    re-parsing ~540 daily files. Rebuilt from the day files whenever its set
+    of days doesn't match the store's."""
+    want = set(days)
+    p = _panel_path(exch)
+    have = pd.DataFrame()
+    try:
+        have = pd.read_pickle(p)
+        have_days = set(have.attrs.get("days", []))
+    except Exception:
+        have_days = set()
+    if have_days == want and not have.empty:
+        return have
+    keep = have_days & want
+    if keep and not have.empty:
+        have = have[have["date"].isin(keep)]
+    else:
+        have, keep = pd.DataFrame(), set()
+    new = _read_days(exch, sorted(want - keep), None)
+    panel = pd.concat([x for x in (have, new) if not x.empty], ignore_index=True) \
+        if (not have.empty or not new.empty) else pd.DataFrame()
+    if not panel.empty:
+        panel["sym"] = panel["sym"].astype("category")
+        panel.attrs["days"] = sorted(want)
+        try:
+            tmp = p.with_suffix(f".tmp{threading.get_ident()}")   # concurrent writers
+            panel.to_pickle(tmp)
+            tmp.replace(p)
+        except Exception:
+            pass
+    return panel
+
+
 def _load_frames(exch: str, syms: set[str], calendar_days: int) -> pd.DataFrame:
     cutoff = (datetime.now(IST).date() - timedelta(days=calendar_days)).isoformat()
     days = [d for d in stored_days(exch) if d >= cutoff]
+    try:
+        panel = _panel(exch, days)
+        if not panel.empty:
+            f = panel[panel["sym"].isin(syms)].copy()
+            f["sym"] = f["sym"].astype(str)
+            return f.reset_index(drop=True)
+    except Exception:
+        pass
+    return _read_days(exch, days, syms)
+
+
+def _read_days(exch: str, days: list[str], syms: Optional[set[str]]) -> pd.DataFrame:
+    """Parse day files in parallel; syms=None keeps every symbol."""
 
     def read(day: str) -> Optional[pd.DataFrame]:
         try:
@@ -482,7 +539,8 @@ def _load_frames(exch: str, syms: set[str], calendar_days: int) -> pd.DataFrame:
                              usecols=["sym", "open", "high", "low", "close", "prev_close", "volume"])
         except Exception:
             return None
-        df = df[df["sym"].isin(syms)]
+        if syms is not None:
+            df = df[df["sym"].isin(syms)]
         if df.empty:
             return None
         df["date"] = day

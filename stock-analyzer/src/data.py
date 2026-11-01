@@ -19,10 +19,17 @@ if TYPE_CHECKING:
 # yfinance.info is one HTTP request per ticker (~1-2s); a 30-min cache lets
 # subsequent batches skip the call entirely for stocks already seen.
 INFO_CACHE_DIR = Path("data/cache/yf_info")
-# Fundamentals / name / sector change slowly and price comes from the history
-# fetch, so one .info call per ticker per day is enough. A 30-min TTL made
-# every refresh re-pay ~1.5s × ~1,900 tickers.
-INFO_CACHE_TTL_SECONDS = 20 * 60 * 60
+# Name, sector, EPS, book value, debt and growth change with quarterly results;
+# the price-based ratios are rescaled to the current price on use (see
+# reprice_info), so .info only needs re-fetching every several days. Each
+# ticker's TTL is spread over 5-9 days by a stable hash, so ~1/7 of the
+# universe refreshes on any given day instead of all ~1,900 at once.
+INFO_CACHE_TTL_SECONDS = 9 * 24 * 60 * 60   # upper bound (see _info_ttl)
+
+
+def _info_ttl(ticker: str) -> int:
+    import zlib
+    return (5 + zlib.crc32(ticker.upper().encode()) % 5) * 24 * 60 * 60
 
 # Per-ticker history cache (parquet would be smaller but JSON keeps zero deps).
 # Used by /api/chart and other live paths to avoid re-fetching the same 2y of
@@ -36,7 +43,7 @@ def _read_cached_info(ticker: str) -> Optional[dict]:
     if not p.exists():
         return None
     age = time.time() - p.stat().st_mtime
-    if age > INFO_CACHE_TTL_SECONDS:
+    if age > _info_ttl(ticker):
         return None
     try:
         d = json.loads(p.read_text(encoding="utf-8"))
@@ -45,6 +52,34 @@ def _read_cached_info(ticker: str) -> Optional[dict]:
     if d.get("_empty"):
         return {} if age < INFO_EMPTY_TTL_SECONDS else None
     return d
+
+
+_PRICE_SCALED = ("trailingPE", "forwardPE", "priceToBook", "marketCap", "enterpriseValue")
+_PRICE_INVERSE = ("dividendYield", "trailingAnnualDividendYield")
+
+
+def reprice_info(info: dict, price: Optional[float]) -> dict:
+    """Bring price-dependent .info ratios up to today's price. P/E, P/B and
+    market cap scale with price; dividend yield scales inversely. The cached
+    .info may be several days old; its own price field says how old."""
+    if not info or not price:
+        return info
+    p0 = next((info.get(k) for k in ("currentPrice", "regularMarketPrice", "previousClose")
+               if isinstance(info.get(k), (int, float)) and info.get(k) > 0), None)
+    if not p0:
+        return info
+    r = float(price) / float(p0)
+    if not 0.2 < r < 5 or abs(r - 1) < 1e-9:
+        return info                  # implausible jump (bad data) or nothing to do
+    out = dict(info)
+    for k in _PRICE_SCALED:
+        if isinstance(out.get(k), (int, float)):
+            out[k] = out[k] * r
+    for k in _PRICE_INVERSE:
+        if isinstance(out.get(k), (int, float)):
+            out[k] = out[k] / r
+    out["currentPrice"] = float(price)
+    return out
 
 
 def fetch_info(ticker: str) -> dict:
@@ -199,7 +234,8 @@ def fetch(
         raise NoPriceHistory(f"No valid Close prices for {sym}")
 
     # Disk cache first — the batch normally warmed it in its parallel prefetch.
-    info = fetch_info(ticker)
+    # It may be several days old: rescale its price-based ratios to today.
+    info = reprice_info(fetch_info(ticker), float(hist["Close"].iloc[-1]))
 
     return StockData(
         ticker=ticker.upper(),

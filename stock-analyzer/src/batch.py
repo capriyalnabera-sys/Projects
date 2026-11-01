@@ -143,6 +143,28 @@ def _illiquid_short_circuit(ticker: str, hist, tech, cfg: dict,
     return serialized
 
 
+# Bump when analysis logic changes, so every stock is re-analyzed once.
+ANALYSIS_VERSION = "2026-11-01"
+
+
+def input_key(history, regime: Optional[dict], cfg: Optional[dict]) -> Optional[str]:
+    """Fingerprint of everything a verdict depends on that can change within a
+    day: the latest price bar, the market regime, the recommendation settings,
+    and the date (fundamentals caches and earnings proximity roll daily). Two
+    runs with the same key would produce the same verdict, so the second one
+    is skipped."""
+    try:
+        h = history.dropna(subset=["Close"])
+        last_day = h.index[-1].date().isoformat()
+        last_close = round(float(h["Close"].iloc[-1]), 2)
+    except Exception:
+        return None
+    reg = regime or {}
+    rec_cfg = json.dumps((cfg or {}).get("recommendation", {}), sort_keys=True, default=str)
+    return "|".join([ANALYSIS_VERSION, date.today().isoformat(), last_day, str(last_close),
+                     str(reg.get("state")), str(reg.get("hold_zone")), rec_cfg])
+
+
 class _NoData:
     """Returned by analyze_one when Yahoo has no price history for a ticker."""
     def __bool__(self) -> bool:  # never mistaken for a real result
@@ -344,6 +366,7 @@ def run_batch(
     ttl_minutes: int = 0,           # 0 = always re-analyze
     max_workers: int = 8,           # retry-pass workers (cfg batch.analysis_workers sizes analysis)
     regime=None,                    # dict, or a Future resolving to one
+    skip_unchanged: bool = True,    # skip stocks whose inputs haven't changed
 
 ) -> dict:
     """Run batch analysis in parallel. Skips tickers whose cache is fresh.
@@ -439,6 +462,31 @@ def run_batch(
             })
             histories.update(data.bulk_fetch_histories(rest, period="2y"))
         _t = prof.mark("price history: Yahoo bulk", _t)
+
+    # ---- Skip stocks whose inputs haven't changed since their last analysis --
+    # Prices now come from exchange files published once a day, so a repeat
+    # refresh the same day would otherwise redo every stock on identical data.
+    skipped_unchanged = 0
+    if skip_unchanged and to_process:
+        if hasattr(regime, "result"):
+            try:
+                regime = regime.result()
+            except Exception:
+                regime = None
+        keep: list[str] = []
+        for tk in to_process:
+            h = histories.get(tk.upper())
+            key = input_key(h, regime, cfg) if h is not None and not getattr(h, "empty", True) else None
+            prev = read_result(tk, cache_root) if key else None
+            if key and prev and prev.get("input_key") == key:
+                skipped_unchanged += 1
+                continue
+            keep.append(tk)
+        to_process = keep
+        skipped += skipped_unchanged
+        done += skipped_unchanged
+    _t = prof.mark("skip unchanged stocks", _t)
+    prof.meta.update({"skipped_unchanged": skipped_unchanged, "to_process": len(to_process)})
 
     # Company names from the exchange files, for rows Yahoo couldn't name.
     try:
@@ -539,7 +587,11 @@ def run_batch(
         )
         if result:
             _fill_name(result)
+            h = histories.get(t.upper())
+            if h is not None and not getattr(h, "empty", True):
+                result["input_key"] = input_key(h, reg, cfg)
             write_result(result, cache_root)
+            fresh_results[t.upper()] = result
         return t, result
 
     def _status(current: str, running: bool = True) -> None:
@@ -569,6 +621,7 @@ def run_batch(
             if counter["i"] % 5 == 0 or counter["i"] == len(to_process):
                 _status(tk)
 
+    fresh_results: dict[str, dict] = {}  # this run's results, for the snapshot
     from .profiler import timed as profiler_timed
     PER_CALL_CEILING = 30                # generous seconds per queued network call
     analysis_futs: list = []
@@ -763,16 +816,18 @@ def run_batch(
 
     # Compute fresh sector stats from this batch's results so the NEXT batch
     # has up-to-date sector medians for relative scoring.
-    try:
-        fresh_stats = ssmod.compute_sector_stats(cache_root)
-        ssmod.save_sector_stats(fresh_stats, cache_root)
-    except Exception:
-        pass
+    if ok:                           # nothing re-analyzed → stats can't have changed
+        try:
+            fresh_stats = ssmod.compute_sector_stats(cache_root)
+            ssmod.save_sector_stats(fresh_stats, cache_root)
+        except Exception:
+            pass
 
     _t = prof.mark("sector stats", _t)
     final = {
         "running": False, "total": total, "done": done, "ok": ok, "errors": errors,
         "no_data": len(no_data_now) + skipped_no_data,
+        "unchanged": skipped_unchanged,
         "elapsed_sec": round(elapsed, 1),
         "finished_at": datetime.now(timezone.utc).isoformat(),
         "failed_tickers": failed[:50],  # store residue (capped) for diagnosis
@@ -791,8 +846,9 @@ def run_batch(
                 snap = json.loads(snap_path.read_text(encoding="utf-8"))
             except Exception:
                 snap = {}
-        for t in tickers:
-            r = read_result(t, cache_root)
+        # Nothing re-analyzed and today's snapshot exists: it already stands.
+        for t in (tickers if (ok or not snap) else []):
+            r = fresh_results.get(t.upper()) or read_result(t, cache_root)
             if r:
                 snap[t.upper()] = {
                     "verdict": r.get("verdict"),
@@ -809,7 +865,8 @@ def run_batch(
                     "stop_loss": r.get("stop_loss"),
                     "rsi_14": r.get("rsi_14"),
                 }
-        snap_path.write_text(json.dumps(snap), encoding="utf-8")
+        if ok or not snap_path.exists():
+            snap_path.write_text(json.dumps(snap), encoding="utf-8")
     except Exception:
         pass
     prof.mark("daily snapshot", _t)
