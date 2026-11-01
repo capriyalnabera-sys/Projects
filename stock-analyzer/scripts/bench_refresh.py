@@ -194,6 +194,11 @@ def main() -> None:
         ep.ensure_updated = lambda *a, **k: []   # store is current for the refresh runs
         results.append(run("cold refresh (first of the day)", listed))
         results.append(run("warm refresh (same day again)", listed))
+        # Next day: Yahoo .info (20 h cache) has expired; screener.in (3 days)
+        # and earnings dates (7 days) are still cached. With the old 24 h TTLs
+        # all three expired, so the old code's next-day refresh == its cold one.
+        shutil.rmtree(Path("data/cache/yf_info"), ignore_errors=True)
+        results.append(run("next-day refresh (Yahoo info expired)", listed))
         print("\nSUMMARY " + json.dumps({r["label"]: round(r["wall"], 1) for r in results}))
     finally:
         os.chdir(ROOT)

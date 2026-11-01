@@ -22,7 +22,7 @@ from __future__ import annotations
 import json
 import threading
 import time
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import ThreadPoolExecutor, as_completed, wait
 from datetime import datetime, timezone, date, timedelta
 from pathlib import Path
 from typing import Callable, Optional
@@ -342,7 +342,7 @@ def run_batch(
     tg_signals: Optional[dict[str, TelegramSignal]] = None,
     progress_cb: Optional[Callable[[int, int, str], None]] = None,
     ttl_minutes: int = 0,           # 0 = always re-analyze
-    max_workers: int = 8,           # analysis workers (CPU + cache reads)
+    max_workers: int = 8,           # retry-pass workers (cfg batch.analysis_workers sizes analysis)
     regime=None,                    # dict, or a Future resolving to one
 
 ) -> dict:
@@ -462,97 +462,79 @@ def run_batch(
     from . import sector_stats as ssmod
     sector_stats = ssmod.load_sector_stats(cache_root)
 
-    # ---- Network prefetch, one pool per server -----------------------------
-    # Liquid names need Yahoo .info, an earnings date, and screener.in
-    # fundamentals. Fetching them here — Yahoo and screener.in in parallel,
-    # each capped at a polite concurrency — warms the disk caches, so the
-    # analysis below is pure CPU. Previously each worker made these calls one
-    # after another, leaving each server idle while it waited on the others.
+    # ---- Pipeline: per-server network prefetch overlapped with analysis -----
+    # Liquid names need Yahoo .info, an earnings date and screener.in
+    # fundamentals. Each server gets its own pool, capped at a polite
+    # concurrency, so all servers work at once (previously each worker hit
+    # them one after another). Analysis is CPU-bound pandas work that the GIL
+    # serializes — measured: 1 thread 29 s, 4-8 threads ~56 s for the full
+    # universe — so it runs on a small pool *alongside* the network: names
+    # that need no network start immediately, and each liquid name is
+    # analyzed the moment its own fetches finish.
     floor = _liquidity_floor(cfg)
-    need_net: list[str] = []
-    for tk in to_process:
-        h = histories.get(tk.upper())
-        if h is None or getattr(h, "empty", True):
-            need_net.append(tk)          # no history yet: full path anyway
-            continue
+    bcfg = (cfg or {}).get("batch", {}) or {}
+    def _is_liquid(h) -> bool:
         try:
             tail = h.dropna(subset=["Close"]).tail(20)
             adv = float((tail["Close"] * tail["Volume"]).mean()) / 1e7
         except Exception:
-            adv = None
-        if adv is None or adv != adv or adv >= floor:
+            return True                  # unknown turnover: give it the full path
+        return adv != adv or adv >= floor
+
+    need_net: list[str] = []             # history in hand, liquid: needs fundamentals
+    need_history: list[str] = []         # no history yet: check Yahoo first
+    no_net: list[str] = []               # thin names: analyze right away
+    for tk in to_process:
+        h = histories.get(tk.upper())
+        if h is None or getattr(h, "empty", True):
+            need_history.append(tk)
+        elif _is_liquid(h):
             need_net.append(tk)
-    prof.meta["liquid_needing_fundamentals"] = len(need_net)
-    if need_net:
-        from . import earnings as _earn, screener_in as _scr
-        bcfg = (cfg or {}).get("batch", {}) or {}
-        yahoo_workers = int(bcfg.get("yahoo_workers", 8))
-        screener_workers = int(bcfg.get("screener_workers", 6))
-        scr_dir = cache_root / "screener_in"
-        yahoo_jobs = [(data.fetch_info, tk) for tk in need_net] + \
-                     [(_earn.next_earnings_date, tk) for tk in need_net]
-        scr_jobs = [tk for tk in need_net if not tk.upper().endswith(".BO")]
-        total_jobs = len(yahoo_jobs) + len(scr_jobs)
-        pf = {"n": 0}
-        pf_lock = threading.Lock()
+        else:
+            no_net.append(tk)
+    # Analysis never waits on the network now, and the GIL makes extra threads
+    # slower for this pandas work (measured: 1 thread 29 s, 4+ threads ~56 s).
+    analysis_workers = max(1, int(bcfg.get("analysis_workers", 1)))
+    no_history: set[str] = set()         # Yahoo confirmed: no price data
+    prof.meta.update({"liquid_needing_fundamentals": len(need_net),
+                      "needing_history_check": len(need_history),
+                      "analysis_workers": analysis_workers})
 
-        def _tick() -> None:
-            with pf_lock:
-                pf["n"] += 1
-                n = pf["n"]
-            if n % 25 == 0 or n == total_jobs:
-                write_status(cache_root, {
-                    "running": True, "total": total, "done": done, "errors": 0,
-                    "current": f"fetching fundamentals {n}/{total_jobs} (Yahoo + screener.in in parallel)",
-                    "started_at": started_at,
-                })
+    # Regime / research signals may still be computing in the background.
+    # Resolve them once, on first use, inside an analysis worker — so the
+    # network pools never wait on them.
+    ctx = {"ready": False}
+    ctx_lock = threading.Lock()
 
-        def _yahoo(job) -> None:
-            fn, tk = job
-            try:
-                fn(tk)
-            except Exception:
-                pass
-            _tick()
-
-        def _scr(tk) -> None:
-            try:
-                _scr.fetch(tk, cache_dir=scr_dir, ttl_minutes=_scr.SCREENER_TTL_MINUTES)
-            except Exception:
-                pass
-            _tick()
-
-        with ThreadPoolExecutor(max_workers=yahoo_workers) as yex, \
-                ThreadPoolExecutor(max_workers=screener_workers) as sex:
-            futs = [yex.submit(_yahoo, j) for j in yahoo_jobs] + \
-                   [sex.submit(_scr, tk) for tk in scr_jobs]
-            for f in futs:
-                try:
-                    f.result(timeout=120)
-                except Exception:
-                    pass
-    _t = prof.mark("fetch fundamentals (parallel per server)", _t)
-
-    # Regime / research signals may have been computed concurrently.
-    if hasattr(regime, "result"):
-        try:
-            regime = regime.result()
-        except Exception:
-            regime = None
-    if hasattr(tg_signals, "result"):
-        try:
-            tg_signals = tg_signals.result()
-        except Exception:
-            tg_signals = {}
-    _t = prof.mark("wait for regime / research signals", _t)
+    def _context():
+        nonlocal regime, tg_signals
+        with ctx_lock:
+            if not ctx["ready"]:
+                t0 = time.perf_counter()
+                if hasattr(regime, "result"):
+                    try:
+                        regime = regime.result()
+                    except Exception:
+                        regime = None
+                if hasattr(tg_signals, "result"):
+                    try:
+                        tg_signals = tg_signals.result()
+                    except Exception:
+                        tg_signals = {}
+                prof.add("wait: regime / research signals", time.perf_counter() - t0)
+                ctx["ready"] = True
+        return regime, tg_signals
 
     def _work(t: str):
+        if t.upper() in no_history:
+            return t, NO_DATA
+        reg, tgs = _context()
         prefetched = histories.get(t.upper())
         result = analyze_one(
             t, cfg, cache_root,
-            tg_signal=(tg_signals or {}).get(t.upper()),
+            tg_signal=(tgs or {}).get(t.upper()),
             prefetched_history=prefetched,
-            regime=regime,
+            regime=reg,
             sector_stats=sector_stats,
         )
         if result:
@@ -567,39 +549,160 @@ def run_batch(
             "current": current, "started_at": started_at,
         })
 
-    # Per-task hard timeout — a single hung yfinance call used to freeze the
-    # whole batch for hours. 45s is plenty for any one ticker's analysis.
-    PER_TICKER_TIMEOUT = 45
-    with ThreadPoolExecutor(max_workers=max_workers) as ex:
-        fut_to_ticker = {ex.submit(_work, t): t for t in to_process}
+    def _account(fut, tk: str) -> None:
+        nonlocal done, ok
         try:
-            for fut in as_completed(fut_to_ticker, timeout=PER_TICKER_TIMEOUT * len(to_process) + 60):
-                t_assigned = fut_to_ticker[fut]
-                try:
-                    t, result = fut.result(timeout=PER_TICKER_TIMEOUT)
-                except Exception:
-                    t, result = t_assigned, None
-                with progress_lock:
-                    counter["i"] += 1
-                    done += 1
-                    if result is NO_DATA:
-                        no_data_now.append(t_assigned)
-                    elif result:
-                        ok += 1
-                    else:
-                        failed.append(t_assigned)
-                    if progress_cb:
-                        progress_cb(counter["i"] + skipped, total, t_assigned)
-                    if counter["i"] % 5 == 0 or counter["i"] == len(to_process):
-                        _status(t_assigned)
+            _, result = fut.result()
         except Exception:
-            # Overall as_completed timeout — cancel anything still pending
-            # and let what we have be the result. Better than hanging forever.
-            for f in fut_to_ticker:
-                if not f.done():
-                    f.cancel()
+            result = None
+        with progress_lock:
+            counter["i"] += 1
+            done += 1
+            if result is NO_DATA:
+                no_data_now.append(tk)
+            elif result:
+                ok += 1
+            else:
+                failed.append(tk)
+            if progress_cb:
+                progress_cb(counter["i"] + skipped, total, tk)
+            if counter["i"] % 5 == 0 or counter["i"] == len(to_process):
+                _status(tk)
 
-    _t = prof.mark("analyze stocks (workers)", _t)
+    from .profiler import timed as profiler_timed
+    PER_CALL_CEILING = 30                # generous seconds per queued network call
+    analysis_futs: list = []
+    sub_lock = threading.Lock()
+    aex = ThreadPoolExecutor(max_workers=analysis_workers)
+
+    def _submit(tk: str) -> None:
+        with sub_lock:
+            f = aex.submit(_work, tk)
+            analysis_futs.append(f)
+        f.add_done_callback(lambda fut, tk=tk: _account(fut, tk))
+
+    for tk in no_net:
+        _submit(tk)                      # no network needed: start now
+
+    if need_net or need_history:
+        import yfinance as _yf
+        from . import earnings as _earn, screener_in as _screener
+        yahoo_workers = int(bcfg.get("yahoo_workers", 8))
+        screener_workers = int(bcfg.get("screener_workers", 6))
+        scr_dir = cache_root / "screener_in"
+        yex = ThreadPoolExecutor(max_workers=yahoo_workers)
+        sex = ThreadPoolExecutor(max_workers=screener_workers)
+        pf_lock = threading.Lock()
+        # Jobs spawn follow-up jobs (history -> fundamentals), so completion is
+        # tracked with an outstanding-job counter rather than executor shutdown.
+        # It starts at 1 as a guard while the initial jobs are being queued.
+        pf = {"outstanding": 1, "done": 0}
+        all_done = threading.Event()
+        remaining: dict[str, int] = {}
+
+        def _finish() -> None:
+            with pf_lock:
+                pf["outstanding"] -= 1
+                pf["done"] += 1
+                n, zero = pf["done"], pf["outstanding"] == 0
+            if zero:
+                all_done.set()
+            if n % 25 == 0:
+                write_status(cache_root, {
+                    "running": True, "total": total, "done": done, "ok": ok, "errors": len(failed),
+                    "current": f"fetching from Yahoo + screener.in in parallel ({n} calls done), "
+                               f"analyzing as data arrives",
+                    "started_at": started_at,
+                })
+
+        def _spawn(ex, fn, *args) -> None:
+            with pf_lock:
+                pf["outstanding"] += 1
+
+            def run():
+                try:
+                    fn(*args)
+                except Exception:
+                    pass
+                finally:
+                    _finish()
+            ex.submit(run)
+
+        def _part_done(tk: str) -> None:
+            with pf_lock:
+                remaining[tk] -= 1
+                ready = remaining[tk] == 0
+            if ready:
+                _submit(tk)              # all of this name's data is in: analyze it
+
+        def _yahoo_part(fn, tk: str) -> None:
+            try:
+                fn(tk)
+            finally:
+                _part_done(tk)
+
+        def _screener_part(tk: str) -> None:
+            try:
+                _screener.fetch(tk, cache_dir=scr_dir, ttl_minutes=_screener.SCREENER_TTL_MINUTES)
+            except Exception as e:
+                print(f"[batch] screener prefetch {tk}: {type(e).__name__}: {e}", flush=True)
+            finally:
+                _part_done(tk)
+
+        def _fundamentals(tk: str) -> None:
+            nse = not tk.upper().endswith(".BO")
+            with pf_lock:
+                remaining[tk] = 3 if nse else 2
+            _spawn(yex, _yahoo_part, data.fetch_info, tk)
+            _spawn(yex, _yahoo_part, _earn.next_earnings_date, tk)
+            if nse:
+                _spawn(sex, _screener_part, tk)
+
+        def _history_then_route(tk: str) -> None:
+            # Dead listings stop here: no info / earnings / screener calls.
+            try:
+                with profiler_timed("net: yahoo history (per stock)"):
+                    h = data.history_strict(_yf.Ticker(data.to_yf_symbol(tk)))
+                h = h.dropna(subset=["Close"]) if h is not None else h
+            except data.NoPriceHistory:
+                no_history.add(tk.upper())
+                _submit(tk)
+                return
+            except Exception:
+                _submit(tk)              # transient: analysis retries via data.fetch
+                return
+            if h is None or h.empty:
+                no_history.add(tk.upper())
+                _submit(tk)
+                return
+            histories[tk.upper()] = h
+            if _is_liquid(h):
+                _fundamentals(tk)
+            else:
+                _submit(tk)
+
+        for tk in need_net:
+            _fundamentals(tk)
+        for tk in need_history:
+            _spawn(yex, _history_then_route, tk)
+        _finish()                        # release the guard
+        all_done.wait(timeout=PER_CALL_CEILING * max(pf["outstanding"] + pf["done"], 1))
+        yex.shutdown(wait=False, cancel_futures=True)
+        sex.shutdown(wait=False, cancel_futures=True)
+    _t = prof.mark("fetch fundamentals (parallel per server, analysis overlapped)", _t)
+
+    # Every name has been submitted; wait for the analysis that is still queued.
+    # Hard cap so one hung call can never freeze the batch.
+    PER_TICKER_TIMEOUT = 45
+    with sub_lock:
+        pending = list(analysis_futs)
+    _, not_done = wait(pending, timeout=PER_TICKER_TIMEOUT * max(len(pending), 1) + 60)
+    for f in not_done:
+        f.cancel()
+    aex.shutdown(wait=not not_done, cancel_futures=bool(not_done))
+
+    _t = prof.mark("analyze stocks (remaining after network)", _t)
+
     # Retry pass for transient failures — also parallel.
     # Throttling windows last minutes, so short backoffs just get throttled again.
     backoffs = [20, 60]
@@ -612,12 +715,13 @@ def run_batch(
         retry_counter = {"i": 0}
 
         def _retry(t: str):
+            reg, tgs = _context()
             prefetched = histories.get(t.upper())
             result = analyze_one(
                 t, cfg, cache_root,
-                tg_signal=(tg_signals or {}).get(t.upper()),
+                tg_signal=(tgs or {}).get(t.upper()),
                 prefetched_history=prefetched,
-                regime=regime,
+                regime=reg,
                 sector_stats=sector_stats,
             )
             if result:

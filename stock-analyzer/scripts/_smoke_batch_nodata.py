@@ -18,10 +18,24 @@ from src import exchange_prices  # noqa: E402
 
 # Keep this test on the Yahoo path and away from the real price-file store.
 exchange_prices.histories_for = lambda *a, **k: {}
-# Keep the parallel fundamentals prefetch offline too.
-data.fetch_info = lambda t: {}
-from src import earnings as _earnings  # noqa: E402
-_earnings.next_earnings_date = lambda t: None
+# Keep the parallel fundamentals prefetch offline too — and record what it asks.
+import threading  # noqa: E402
+from src import earnings as _earnings, screener_in as _screener  # noqa: E402
+PREFETCH = {"info": [], "earnings": [], "screener": []}
+_pf_lock = threading.Lock()
+
+
+def _rec(kind):
+    def fn(t, **kw):
+        with _pf_lock:
+            PREFETCH[kind].append(t)
+        return {} if kind != "earnings" else None
+    return fn
+
+
+data.fetch_info = _rec("info")
+_earnings.next_earnings_date = _rec("earnings")
+_screener.fetch = _rec("screener")
 
 batch.time.sleep = lambda s: None   # retry backoffs are 10s/25s — skip them
 data.time.sleep = lambda s: None
@@ -114,6 +128,73 @@ def main():
         assert set(res) == {"A", "B"}, res
         assert seen[2] == ["B", "XDEAD"], f"second pass should re-request only missing names: {seen}"
         print("bulk fetch: empty chunk retried, dropped names re-requested, dead symbol absent")
+
+        # --- pipeline: per-server prefetch, overlap, resolved context -------
+        import numpy as np
+        import pandas as pd
+        from concurrent.futures import ThreadPoolExecutor
+        idx = pd.bdate_range(end="2026-10-30", periods=60)
+        c = np.full(60, 100.0)
+
+        def hist(vol):
+            return pd.DataFrame({"Open": c, "High": c, "Low": c, "Close": c,
+                                 "Adj Close": c, "Volume": np.full(60, vol)}, index=idx)
+
+        liquid = ["LIQA", "LIQB", "LIQC.BO"]           # ₹10 Cr/day
+        thin = ["THIN1", "THIN2"]                       # ₹0.0001 Cr/day
+        hists = {t: hist(1_000_000) for t in liquid}
+        hists.update({t: hist(1) for t in thin})
+        exchange_prices.histories_for = lambda tickers, *a, **k: dict(hists)
+        for k in PREFETCH:
+            PREFETCH[k].clear()
+        order, seen_regime = [], []
+        side = ThreadPoolExecutor(max_workers=2)
+        regime_future = side.submit(lambda: {"state": "risk_on"})
+        tg_future = side.submit(lambda: {})
+
+        def pipeline_analyze(t, cfg, cache_root, regime=None, **kw):
+            seen_regime.append(regime)
+            with _pf_lock:
+                order.append((t, len(PREFETCH["info"]) + len(PREFETCH["earnings"])
+                              + len(PREFETCH["screener"])))
+            return {"ticker": t, "name": t, "last_close": 100.0,
+                    "as_of": "2026-10-30T10:00:00+00:00"}
+
+        batch.analyze_one = pipeline_analyze
+        s3 = batch.run_batch(liquid + thin, {}, root, regime=regime_future, tg_signals=tg_future)
+        side.shutdown()
+        assert sorted(PREFETCH["info"]) == sorted(liquid), PREFETCH["info"]
+        assert sorted(PREFETCH["earnings"]) == sorted(liquid), PREFETCH["earnings"]
+        assert sorted(PREFETCH["screener"]) == ["LIQA", "LIQB"], \
+            f"screener prefetch must cover NSE liquid names only: {PREFETCH['screener']}"
+        assert all(r == {"state": "risk_on"} for r in seen_regime), \
+            f"analysis must receive the resolved regime, got {seen_regime}"
+        assert s3["ok"] == 5 and s3["done"] == 5, s3
+        thin_first = [n for t, n in order if t in thin]
+        assert thin_first and min(thin_first) < 8, \
+            f"thin names should start before the network prefetch finishes: {order}"
+        print(f"pipeline: Yahoo prefetch {len(PREFETCH['info'])}+{len(PREFETCH['earnings'])} calls, "
+              f"screener.in {len(PREFETCH['screener'])} (BSE skipped), regime future resolved, "
+              f"thin names analyzed alongside the network")
+
+        # --- routing for names with no exchange history -------------------
+        def fake_history(yt, **kw):
+            sym = yt.ticker
+            if sym.startswith("DEADH"):
+                raise data.NoPriceHistory("No data found, symbol may be delisted")
+            return hist(1_000_000) if sym.startswith("NEWLIQ") else hist(1)
+
+        data.history_strict = fake_history
+        exchange_prices.histories_for = lambda tickers, *a, **k: {}
+        for k in PREFETCH:
+            PREFETCH[k].clear()
+        batch.analyze_one = pipeline_analyze
+        s4 = batch.run_batch(["DEADH", "NEWLIQ", "NEWTHIN"], {}, root, regime={"state": "neutral"})
+        assert PREFETCH["info"] == ["NEWLIQ"] and PREFETCH["earnings"] == ["NEWLIQ"], PREFETCH
+        assert PREFETCH["screener"] == ["NEWLIQ"], PREFETCH
+        assert s4["no_data"] >= 1 and s4["ok"] == 2, s4
+        print("routing: dead listing stopped after one history check (0 follow-up calls); "
+              "new liquid name got fundamentals; new thin name analyzed directly")
 
         print("\nAll batch speed-up smoke checks passed.")
     finally:
