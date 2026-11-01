@@ -342,8 +342,9 @@ def run_batch(
     tg_signals: Optional[dict[str, TelegramSignal]] = None,
     progress_cb: Optional[Callable[[int, int, str], None]] = None,
     ttl_minutes: int = 0,           # 0 = always re-analyze
-    max_workers: int = 16,          # parallelism for yfinance/screener fetches
-    regime: Optional[dict] = None,
+    max_workers: int = 8,           # analysis workers (CPU + cache reads)
+    regime=None,                    # dict, or a Future resolving to one
+
 ) -> dict:
     """Run batch analysis in parallel. Skips tickers whose cache is fresh.
     Updates _status.json so /api/status can report progress.
@@ -354,6 +355,14 @@ def run_batch(
     """
     started = time.time()
     total = len(tickers)
+    from . import profiler as _profmod
+    prof = _profmod.current()
+    own_prof = prof is None
+    if own_prof:
+        prof = _profmod.Profiler()
+        _profmod.install(prof)
+    prof.meta.update({"tickers": len(tickers)})
+    _t = time.perf_counter()
     started_at = datetime.now(timezone.utc).isoformat()
     write_status(cache_root, {
         "running": True, "total": total, "done": 0, "errors": 0,
@@ -386,6 +395,8 @@ def run_batch(
                     pass
         to_process.append(t)
 
+    _t = prof.mark("check what needs refreshing", _t)
+    prof.meta.update({"to_process": len(to_process), "skipped": skipped})
     done = skipped          # processed so far (drives the progress counter)
     ok = 0                  # produced a fresh analysis this run
     failed: list[str] = []  # transient failures — retried
@@ -416,7 +427,10 @@ def run_batch(
         except Exception as e:
             print(f"[prices] exchange files unavailable: {type(e).__name__}: {e}", flush=True)
             histories = {}
+        _t = prof.mark("price history: exchange files", _t)
+        prof.meta["from_exchange_files"] = len(histories)
         rest = [t for t in to_process if t.upper() not in histories]
+        prof.meta["from_yahoo"] = len(rest)
         if rest:
             write_status(cache_root, {
                 "running": True, "total": total, "done": done, "errors": 0,
@@ -424,6 +438,7 @@ def run_batch(
                 "started_at": started_at,
             })
             histories.update(data.bulk_fetch_histories(rest, period="2y"))
+        _t = prof.mark("price history: Yahoo bulk", _t)
 
     # Company names from the exchange files, for rows Yahoo couldn't name.
     try:
@@ -446,6 +461,90 @@ def run_batch(
     # but avoids the chicken-and-egg of needing stats before analyzing anything.
     from . import sector_stats as ssmod
     sector_stats = ssmod.load_sector_stats(cache_root)
+
+    # ---- Network prefetch, one pool per server -----------------------------
+    # Liquid names need Yahoo .info, an earnings date, and screener.in
+    # fundamentals. Fetching them here — Yahoo and screener.in in parallel,
+    # each capped at a polite concurrency — warms the disk caches, so the
+    # analysis below is pure CPU. Previously each worker made these calls one
+    # after another, leaving each server idle while it waited on the others.
+    floor = _liquidity_floor(cfg)
+    need_net: list[str] = []
+    for tk in to_process:
+        h = histories.get(tk.upper())
+        if h is None or getattr(h, "empty", True):
+            need_net.append(tk)          # no history yet: full path anyway
+            continue
+        try:
+            tail = h.dropna(subset=["Close"]).tail(20)
+            adv = float((tail["Close"] * tail["Volume"]).mean()) / 1e7
+        except Exception:
+            adv = None
+        if adv is None or adv != adv or adv >= floor:
+            need_net.append(tk)
+    prof.meta["liquid_needing_fundamentals"] = len(need_net)
+    if need_net:
+        from . import earnings as _earn, screener_in as _scr
+        bcfg = (cfg or {}).get("batch", {}) or {}
+        yahoo_workers = int(bcfg.get("yahoo_workers", 8))
+        screener_workers = int(bcfg.get("screener_workers", 6))
+        scr_dir = cache_root / "screener_in"
+        yahoo_jobs = [(data.fetch_info, tk) for tk in need_net] + \
+                     [(_earn.next_earnings_date, tk) for tk in need_net]
+        scr_jobs = [tk for tk in need_net if not tk.upper().endswith(".BO")]
+        total_jobs = len(yahoo_jobs) + len(scr_jobs)
+        pf = {"n": 0}
+        pf_lock = threading.Lock()
+
+        def _tick() -> None:
+            with pf_lock:
+                pf["n"] += 1
+                n = pf["n"]
+            if n % 25 == 0 or n == total_jobs:
+                write_status(cache_root, {
+                    "running": True, "total": total, "done": done, "errors": 0,
+                    "current": f"fetching fundamentals {n}/{total_jobs} (Yahoo + screener.in in parallel)",
+                    "started_at": started_at,
+                })
+
+        def _yahoo(job) -> None:
+            fn, tk = job
+            try:
+                fn(tk)
+            except Exception:
+                pass
+            _tick()
+
+        def _scr(tk) -> None:
+            try:
+                _scr.fetch(tk, cache_dir=scr_dir, ttl_minutes=_scr.SCREENER_TTL_MINUTES)
+            except Exception:
+                pass
+            _tick()
+
+        with ThreadPoolExecutor(max_workers=yahoo_workers) as yex, \
+                ThreadPoolExecutor(max_workers=screener_workers) as sex:
+            futs = [yex.submit(_yahoo, j) for j in yahoo_jobs] + \
+                   [sex.submit(_scr, tk) for tk in scr_jobs]
+            for f in futs:
+                try:
+                    f.result(timeout=120)
+                except Exception:
+                    pass
+    _t = prof.mark("fetch fundamentals (parallel per server)", _t)
+
+    # Regime / research signals may have been computed concurrently.
+    if hasattr(regime, "result"):
+        try:
+            regime = regime.result()
+        except Exception:
+            regime = None
+    if hasattr(tg_signals, "result"):
+        try:
+            tg_signals = tg_signals.result()
+        except Exception:
+            tg_signals = {}
+    _t = prof.mark("wait for regime / research signals", _t)
 
     def _work(t: str):
         prefetched = histories.get(t.upper())
@@ -500,6 +599,7 @@ def run_batch(
                 if not f.done():
                     f.cancel()
 
+    _t = prof.mark("analyze stocks (workers)", _t)
     # Retry pass for transient failures — also parallel.
     # Throttling windows last minutes, so short backoffs just get throttled again.
     backoffs = [20, 60]
@@ -543,6 +643,7 @@ def run_batch(
                     if retry_counter["i"] % 3 == 0 or retry_counter["i"] == len(retry_list):
                         _status(f"retry {round_idx+1}: {t} ({retry_counter['i']}/{len(retry_list)})")
 
+    _t = prof.mark("retry failed stocks", _t)
     errors = len(failed)
     elapsed = time.time() - started
 
@@ -564,6 +665,7 @@ def run_batch(
     except Exception:
         pass
 
+    _t = prof.mark("sector stats", _t)
     final = {
         "running": False, "total": total, "done": done, "ok": ok, "errors": errors,
         "no_data": len(no_data_now) + skipped_no_data,
@@ -606,5 +708,9 @@ def run_batch(
         snap_path.write_text(json.dumps(snap), encoding="utf-8")
     except Exception:
         pass
+    prof.mark("daily snapshot", _t)
+    if own_prof:
+        _profmod.save(prof.report(), cache_root)
+        _profmod.install(None)
 
     return final

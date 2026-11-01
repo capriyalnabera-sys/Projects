@@ -10,6 +10,9 @@
       {% if rows %} · avg score <strong class="{% if avg_score > 0 %}pos{% elif avg_score < 0 %}neg{% endif %}">{{ '{:+.2f}'.format(avg_score) }}</strong>{% endif %}
       {% if status.running %}· <span style="color: var(--yellow);">refreshing {{ status.done }}/{{ status.total }}</span>
       {% elif status.finished_at %}· last refresh {{ status.elapsed_sec }}s ago{% endif %}
+      {% if last_profile and last_profile.total_seconds and not status.running %}
+      <div style="margin-top:2px;">Last refresh took {{ "%.0f" | format(last_profile.total_seconds) }} s{% if last_profile.bottleneck %} · slowest step: {{ last_profile.bottleneck }}{% endif %} · <a href="/api/profile">full breakdown</a></div>
+      {% endif %}
       {% if price_sources %}
       <div style="margin-top:2px;">Prices: {% for s in price_sources %}{{ s.exchange }} daily files to {{ s.last }} ({{ s.days }} days){% if s.stale %} <span style="color: var(--yellow);">— out of date, using Yahoo</span>{% endif %}{% if not loop.last %} · {% endif %}{% endfor %}</div>
       {% endif %}

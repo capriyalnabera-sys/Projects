@@ -27,6 +27,12 @@ HEADERS = {
 }
 
 
+FAILED_TTL_MINUTES = 24 * 60
+# screener.in fundamentals (ROCE, growth, book value) change with quarterly
+# results; a 3-day cache cuts screener.in traffic ~3x on daily refreshes.
+SCREENER_TTL_MINUTES = 72 * 60
+
+
 def _cache_path(ticker: str, cache_dir: Path) -> Path:
     return cache_dir / f"{ticker.upper()}.json"
 
@@ -123,19 +129,30 @@ def fetch(ticker: str, cache_dir: Optional[Path] = None, ttl_minutes: int = 60) 
     Tries /consolidated/ first (preferred for groups with subsidiaries) then standalone.
     Returns {} if both fail.
     """
+    # screener.in pages are keyed by NSE symbol; BSE-only "XYZ.BO" tickers have
+    # no page, so asking costs two guaranteed-404 requests per stock.
+    if ticker.upper().endswith(".BO"):
+        return {}
     if cache_dir is not None:
         cache_dir.mkdir(parents=True, exist_ok=True)
         cache = _cache_path(ticker, cache_dir)
         if _is_fresh(cache, ttl_minutes):
             try:
-                return json.loads(cache.read_text(encoding="utf-8"))
+                d = json.loads(cache.read_text(encoding="utf-8"))
+                if not d.get("_failed"):
+                    return d
+                # Remembered failure: don't re-ask for a day.
+                if _is_fresh(cache, min(ttl_minutes, FAILED_TTL_MINUTES)):
+                    return {}
             except Exception:
                 pass
 
     out: dict = {}
     for path in (f"/company/{ticker.upper()}/consolidated/", f"/company/{ticker.upper()}/"):
         try:
-            r = requests.get("https://www.screener.in" + path, headers=HEADERS, timeout=15)
+            from .profiler import timed
+            with timed("net: screener.in"):
+                r = requests.get("https://www.screener.in" + path, headers=HEADERS, timeout=15)
             if r.status_code != 200:
                 continue
             soup = BeautifulSoup(r.text, "lxml")
@@ -162,9 +179,10 @@ def fetch(ticker: str, cache_dir: Optional[Path] = None, ttl_minutes: int = 60) 
         except Exception:
             continue
 
-    if cache_dir is not None and out:
+    if cache_dir is not None:
         try:
-            _cache_path(ticker, cache_dir).write_text(json.dumps(out), encoding="utf-8")
+            _cache_path(ticker, cache_dir).write_text(
+                json.dumps(out if out else {"_failed": True}), encoding="utf-8")
         except Exception:
             pass
     return out

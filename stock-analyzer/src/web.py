@@ -200,6 +200,14 @@ def _rows_for(name: str, tickers: list[str], cache_root: Path) -> list[dict]:
     return _memo_get(f"rows:{name}", 600, _build)
 
 
+def _last_profile(cache_root: Path) -> dict:
+    try:
+        from . import profiler
+        return profiler.load(cache_root)
+    except Exception:
+        return {}
+
+
 def _price_sources() -> list[dict]:
     try:
         from . import exchange_prices
@@ -436,6 +444,7 @@ def index():
         no_data_count=(len(batch.load_no_data(cache_root))
                        if name.lower().replace("_", "") in _BIG_UNIVERSES else 0),
         price_sources=_price_sources(),
+        last_profile=_last_profile(cache_root),
         verdict_counts=verdict_counts, total_verdict=total_with_verdict,
         avg_score=avg_score,
         regime=market_regime,
@@ -1347,40 +1356,48 @@ def _refresh_worker(name: str, ttl_minutes: int, with_telegram: bool = True,
         if live:
             tickers = live  # fast path — only the proven-liquid subset
 
-    # Resolve NIFTY regime once per batch
     from . import regime as regime_mod
-    regime = regime_mod.get_regime()
+    # Market regime and the Telegram scan don't depend on price data, so
+    # they run alongside the batch's history and fundamentals stages; the
+    # batch collects them just before analysis starts.
+    from concurrent.futures import ThreadPoolExecutor as _SideTPE
+    _side = _SideTPE(max_workers=2)
+    regime = _side.submit(regime_mod.get_regime)
 
-    tg_signals: dict[str, TelegramSignal] = {}
-    if with_telegram:
-        tcfg = cfg.get("telegram", {})
-        if tcfg.get("api_id") and tcfg.get("api_hash"):
-            try:
-                from . import telegram_ingest
-                aliases = _build_aliases_from_cache(tickers, cache_root)
-                agg = telegram_ingest.scan_groups(
-                    api_id=int(tcfg["api_id"]),
-                    api_hash=tcfg["api_hash"],
-                    session_name=tcfg.get("session_name", "stock_analyzer"),
-                    group_filter=tcfg.get("groups") or None,
-                    days=int(tcfg.get("scan_days", 7)),
-                    tickers_of_interest=tickers,
-                    name_aliases=aliases or None,
-                    pdf_cache_dir=cache_root / "telegram_pdfs",
-                    download_new=False,  # Fast path: parse only cached PDFs (no network).
-                )
-                for tk, a in agg.items():
-                    tg_signals[tk] = TelegramSignal(
-                        mentions_7d=a.count,
-                        avg_sentiment=a.avg_sentiment,
-                        quoted_targets=a.quoted_targets,
+    def _scan_research() -> dict:
+        tg_signals: dict[str, TelegramSignal] = {}
+        if with_telegram:
+            tcfg = cfg.get("telegram", {})
+            if tcfg.get("api_id") and tcfg.get("api_hash"):
+                try:
+                    from . import telegram_ingest
+                    aliases = _build_aliases_from_cache(tickers, cache_root)
+                    agg = telegram_ingest.scan_groups(
+                        api_id=int(tcfg["api_id"]),
+                        api_hash=tcfg["api_hash"],
+                        session_name=tcfg.get("session_name", "stock_analyzer"),
+                        group_filter=tcfg.get("groups") or None,
+                        days=int(tcfg.get("scan_days", 7)),
+                        tickers_of_interest=tickers,
+                        name_aliases=aliases or None,
+                        pdf_cache_dir=cache_root / "telegram_pdfs",
+                        download_new=False,  # Fast path: parse only cached PDFs (no network).
                     )
-            except Exception:
-                # Telegram is optional — bail to plain batch if anything goes wrong
-                # (session locked by another process, network issue, etc.)
-                tg_signals = {}
+                    for tk, a in agg.items():
+                        tg_signals[tk] = TelegramSignal(
+                            mentions_7d=a.count,
+                            avg_sentiment=a.avg_sentiment,
+                            quoted_targets=a.quoted_targets,
+                        )
+                except Exception:
+                    # Telegram is optional — bail to plain batch if anything goes wrong
+                    # (session locked by another process, network issue, etc.)
+                    tg_signals = {}
+        return tg_signals
 
+    tg_signals = _side.submit(_scan_research)
     batch.run_batch(tickers, cfg, cache_root, tg_signals=tg_signals, ttl_minutes=ttl_minutes, regime=regime)
+    _side.shutdown(wait=False)
     # Fresh verdicts just landed — drop memoized rows/counts so pages show them,
     # then rebuild the hot pages in the background so no visitor eats the cold render.
     _memo_clear()
@@ -1430,45 +1447,54 @@ def _refresh_all_worker(ttl_minutes: int, with_telegram: bool):
         except Exception:
             continue
     from . import regime as regime_mod
-    regime = regime_mod.get_regime()
+    # Market regime and the Telegram scan don't depend on price data, so
+    # they run alongside the batch's history and fundamentals stages; the
+    # batch collects them just before analysis starts.
+    from concurrent.futures import ThreadPoolExecutor as _SideTPE
+    _side = _SideTPE(max_workers=2)
+    regime = _side.submit(regime_mod.get_regime)
 
-    tg_signals: dict[str, TelegramSignal] = {}
-    if with_telegram:
-        tcfg = cfg.get("telegram", {})
-        if tcfg.get("api_id") and tcfg.get("api_hash") and _telegram_lock.acquire(timeout=5):
-            try:
-                from . import telegram_ingest
-                aliases = _build_aliases_from_cache(tickers, cache_root)
-                agg = telegram_ingest.scan_groups(
-                    api_id=int(tcfg["api_id"]),
-                    api_hash=tcfg["api_hash"],
-                    session_name=tcfg.get("session_name", "stock_analyzer"),
-                    group_filter=tcfg.get("groups") or None,
-                    days=int(tcfg.get("scan_days", 14)),
-                    tickers_of_interest=tickers,
-                    name_aliases=aliases or None,
-                    pdf_cache_dir=cache_root / "telegram_pdfs",
-                    download_new=False,
-                )
-                for tk, a in agg.items():
-                    tg_signals[tk] = TelegramSignal(
-                        mentions_7d=a.count,
-                        avg_sentiment=a.avg_sentiment,
-                        quoted_targets=a.quoted_targets,
-                    )
-                # Persist per-ticker research so /api/research can read from disk
-                # without needing a live Telegram session — kills the 'database
-                # is locked' errors that occur when batch + research API contend.
-                _persist_research_per_ticker(agg, cache_root)
-            except Exception:
-                tg_signals = {}
-            finally:
+    def _scan_research() -> dict:
+        tg_signals: dict[str, TelegramSignal] = {}
+        if with_telegram:
+            tcfg = cfg.get("telegram", {})
+            if tcfg.get("api_id") and tcfg.get("api_hash") and _telegram_lock.acquire(timeout=5):
                 try:
-                    _telegram_lock.release()
-                except RuntimeError:
-                    pass
+                    from . import telegram_ingest
+                    aliases = _build_aliases_from_cache(tickers, cache_root)
+                    agg = telegram_ingest.scan_groups(
+                        api_id=int(tcfg["api_id"]),
+                        api_hash=tcfg["api_hash"],
+                        session_name=tcfg.get("session_name", "stock_analyzer"),
+                        group_filter=tcfg.get("groups") or None,
+                        days=int(tcfg.get("scan_days", 14)),
+                        tickers_of_interest=tickers,
+                        name_aliases=aliases or None,
+                        pdf_cache_dir=cache_root / "telegram_pdfs",
+                        download_new=False,
+                    )
+                    for tk, a in agg.items():
+                        tg_signals[tk] = TelegramSignal(
+                            mentions_7d=a.count,
+                            avg_sentiment=a.avg_sentiment,
+                            quoted_targets=a.quoted_targets,
+                        )
+                    # Persist per-ticker research so /api/research can read from disk
+                    # without needing a live Telegram session — kills the 'database
+                    # is locked' errors that occur when batch + research API contend.
+                    _persist_research_per_ticker(agg, cache_root)
+                except Exception:
+                    tg_signals = {}
+                finally:
+                    try:
+                        _telegram_lock.release()
+                    except RuntimeError:
+                        pass
+        return tg_signals
 
+    tg_signals = _side.submit(_scan_research)
     batch.run_batch(tickers, cfg, cache_root, tg_signals=tg_signals, ttl_minutes=ttl_minutes, regime=regime)
+    _side.shutdown(wait=False)
 
     # After a FULL sweep of the big universe, rebuild the live set so future
     # routine refreshes only re-run the names that had data + cleared the
@@ -1570,6 +1596,14 @@ def api_refresh_all():
 @app.route("/api/status")
 def api_status():
     return jsonify(batch.read_status(_cache_root()))
+
+
+@app.route("/api/profile")
+def api_profile():
+    """Timing breakdown of the last refresh: wall time per stage plus summed
+    network/disk/CPU call time — shows where a slow refresh spent its time."""
+    from . import profiler
+    return jsonify(profiler.load(_cache_root()))
 
 
 def _first_run_autobuild():

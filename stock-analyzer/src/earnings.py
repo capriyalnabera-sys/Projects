@@ -20,7 +20,9 @@ from . import data as data_mod
 
 
 EARNINGS_CACHE_DIR = Path("data/cache/earnings")
-EARNINGS_CACHE_TTL_SECONDS = 24 * 60 * 60
+EARNINGS_CACHE_TTL_SECONDS = 24 * 60 * 60   # kept for callers; see below
+KNOWN_DATE_TTL_SECONDS = 7 * 24 * 60 * 60
+UNKNOWN_DATE_TTL_SECONDS = 3 * 24 * 60 * 60
 
 
 def _cache_path(ticker: str) -> Path:
@@ -31,19 +33,27 @@ def next_earnings_date(ticker: str) -> Optional[date]:
     """Return the next earnings date if known, else None. Cached for 24h."""
     tk = ticker.upper()
     p = _cache_path(tk)
-    if p.exists() and (time.time() - p.stat().st_mtime) < EARNINGS_CACHE_TTL_SECONDS:
+    if p.exists():
+        age = time.time() - p.stat().st_mtime
         try:
             cached = json.loads(p.read_text(encoding="utf-8"))
             v = cached.get("next_earnings_date")
-            if not v:
+            if v:
+                d = date.fromisoformat(v)
+                # A scheduled results date rarely moves: trust it for a week,
+                # until it passes. Unknown dates are re-asked after 3 days.
+                if age < KNOWN_DATE_TTL_SECONDS and d >= date.today():
+                    return d
+            elif age < UNKNOWN_DATE_TTL_SECONDS:
                 return None
-            return date.fromisoformat(v)
         except Exception:
             pass
 
     out: Optional[date] = None
     try:
-        cal = yf.Ticker(data_mod.to_yf_symbol(tk)).calendar
+        from .profiler import timed
+        with timed("net: yahoo earnings calendar"):
+            cal = yf.Ticker(data_mod.to_yf_symbol(tk)).calendar
     except Exception:
         cal = None
 

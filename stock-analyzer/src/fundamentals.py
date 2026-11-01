@@ -76,7 +76,8 @@ def analyze(
             from . import screener_in
             # screener.in fundamentals update on quarterly results, not intraday —
             # a 24h cache is plenty and saves a network call on every batch.
-            sc = screener_in.fetch(ticker, cache_dir=screener_cache_dir, ttl_minutes=24 * 60) or {}
+            sc = screener_in.fetch(ticker, cache_dir=screener_cache_dir,
+                                   ttl_minutes=screener_in.SCREENER_TTL_MINUTES) or {}
         except Exception:
             sc = {}
         if sc:

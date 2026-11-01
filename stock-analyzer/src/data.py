@@ -9,6 +9,8 @@ from typing import Optional, TYPE_CHECKING
 import pandas as pd
 import yfinance as yf
 
+from .profiler import timed
+
 if TYPE_CHECKING:
     pass
 
@@ -33,17 +35,43 @@ def _read_cached_info(ticker: str) -> Optional[dict]:
     p = INFO_CACHE_DIR / f"{ticker.upper()}.json"
     if not p.exists():
         return None
-    if (time.time() - p.stat().st_mtime) > INFO_CACHE_TTL_SECONDS:
+    age = time.time() - p.stat().st_mtime
+    if age > INFO_CACHE_TTL_SECONDS:
         return None
     try:
-        return json.loads(p.read_text(encoding="utf-8"))
+        d = json.loads(p.read_text(encoding="utf-8"))
     except Exception:
         return None
+    if d.get("_empty"):
+        return {} if age < INFO_EMPTY_TTL_SECONDS else None
+    return d
+
+
+def fetch_info(ticker: str) -> dict:
+    """Yahoo .info for a ticker via the disk cache — one network call per
+    ticker per ~day. Used by the batch's parallel prefetch and by fetch()."""
+    cached = _read_cached_info(ticker)
+    if cached is not None:
+        return cached
+    try:
+        with timed("net: yahoo info"):
+            info = yf.Ticker(to_yf_symbol(ticker)).info or {}
+    except Exception:
+        # Failed or throttled request: don't cache — the next refresh retries.
+        # Only a successful answer (even an empty one) is remembered.
+        return {}
+    _write_cached_info(ticker, info)
+    return info
+
+
+# Yahoo returned nothing for this ticker: remember that for a few hours so a
+# refresh doesn't re-ask for every info-less stock (BSE-only names especially).
+INFO_EMPTY_TTL_SECONDS = 6 * 60 * 60
 
 
 def _write_cached_info(ticker: str, info: dict) -> None:
     if not info:
-        return
+        info = {"_empty": True}
     try:
         INFO_CACHE_DIR.mkdir(parents=True, exist_ok=True)
         (INFO_CACHE_DIR / f"{ticker.upper()}.json").write_text(
@@ -159,7 +187,8 @@ def fetch(
     if prefetched_history is not None and not prefetched_history.empty:
         hist = prefetched_history
     else:
-        hist = history_strict(yt, period=period, interval=interval)
+        with timed("net: yahoo history (per stock)"):
+            hist = history_strict(yt, period=period, interval=interval)
     if hist is None or hist.empty:
         raise NoPriceHistory(f"No price history for {sym}")
     # Drop rows where Close is NaN — yfinance bulk download sometimes returns
@@ -169,15 +198,8 @@ def fetch(
     if hist.empty:
         raise NoPriceHistory(f"No valid Close prices for {sym}")
 
-    # Try the disk cache first — saves the slowest part of fetch (~1-2s per call).
-    info = _read_cached_info(ticker) or {}
-    if not info:
-        try:
-            info = yt.info or {}
-            if info:
-                _write_cached_info(ticker, info)
-        except Exception:
-            info = {}
+    # Disk cache first — the batch normally warmed it in its parallel prefetch.
+    info = fetch_info(ticker)
 
     return StockData(
         ticker=ticker.upper(),
@@ -238,15 +260,16 @@ def _bulk_fetch_chunk(tickers: list[str], period: str) -> dict[str, "pd.DataFram
         return {}
     yf_symbols = [to_yf_symbol(t) for t in tickers]
     try:
-        df = yf.download(
-            yf_symbols,
-            period=period,
-            group_by="ticker",
-            progress=False,
-            auto_adjust=False,
-            threads=True,
-            timeout=60,  # max 60s for this chunk
-        )
+        with timed("net: yahoo bulk download"):
+            df = yf.download(
+                yf_symbols,
+                period=period,
+                group_by="ticker",
+                progress=False,
+                auto_adjust=False,
+                threads=True,
+                timeout=60,  # max 60s for this chunk
+            )
     except Exception:
         return {}
     out: dict[str, "pd.DataFrame"] = {}

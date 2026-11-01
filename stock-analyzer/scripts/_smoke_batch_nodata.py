@@ -18,6 +18,10 @@ from src import exchange_prices  # noqa: E402
 
 # Keep this test on the Yahoo path and away from the real price-file store.
 exchange_prices.histories_for = lambda *a, **k: {}
+# Keep the parallel fundamentals prefetch offline too.
+data.fetch_info = lambda t: {}
+from src import earnings as _earnings  # noqa: E402
+_earnings.next_earnings_date = lambda t: None
 
 batch.time.sleep = lambda s: None   # retry backoffs are 10s/25s — skip them
 data.time.sleep = lambda s: None

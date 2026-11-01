@@ -39,6 +39,7 @@ from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Callable, Optional
 
+import numpy as np
 import pandas as pd
 import requests
 
@@ -172,6 +173,49 @@ def build_history(g: pd.DataFrame) -> pd.DataFrame:
     return hist[["Open", "High", "Low", "Close", "Adj Close", "Volume"]]
 
 
+def build_histories(frames: pd.DataFrame, min_rows: int = 1) -> dict[str, pd.DataFrame]:
+    """Every symbol's adjusted history in one vectorized pass — the per-symbol
+    Python loop in build_history() cost ~15 s for the full universe."""
+    if frames.empty:
+        return {}
+    f = (frames.sort_values(["sym", "date"], kind="mergesort")
+               .drop_duplicates(["sym", "date"], keep="last")
+               .reset_index(drop=True))
+    sym = f["sym"].to_numpy()
+    close = f["close"].to_numpy(dtype=float)
+    prev = f["prev_close"].to_numpy(dtype=float)
+    n = len(f)
+    same = np.zeros(n, dtype=bool)
+    same[1:] = sym[1:] == sym[:-1]
+    c_prev = np.full(n, np.nan)
+    c_prev[1:] = close[:-1]
+    with np.errstate(divide="ignore", invalid="ignore"):
+        fct = prev / c_prev
+    ok = same & (prev > 0) & (c_prev > 0) & (np.abs(fct - 1) > 0.03) & (fct > 0.02) & (fct < 50)
+    logf = np.log(np.where(ok, fct, 1.0))
+    # mult[i] = product of factors strictly after i within the same symbol:
+    # reverse cumulative sum of logs per symbol, minus the row's own factor.
+    rev = pd.Series(logf[::-1]).groupby(sym[::-1]).cumsum().to_numpy()[::-1]
+    mult = np.exp(rev - logf)
+    o = np.where(np.isnan(f["open"].to_numpy(float)), close, f["open"].to_numpy(float)) * mult
+    h = np.where(np.isnan(f["high"].to_numpy(float)), close, f["high"].to_numpy(float)) * mult
+    lo = np.where(np.isnan(f["low"].to_numpy(float)), close, f["low"].to_numpy(float)) * mult
+    c = close * mult
+    v = np.round(np.nan_to_num(f["volume"].to_numpy(float)) / mult)
+    dates = pd.to_datetime(f["date"]).to_numpy()
+    starts = np.flatnonzero(~same)
+    ends = np.append(starts[1:], n)
+    out: dict[str, pd.DataFrame] = {}
+    for a, b in zip(starts, ends):
+        if b - a < min_rows:
+            continue
+        out[sym[a]] = pd.DataFrame(
+            {"Open": o[a:b], "High": h[a:b], "Low": lo[a:b], "Close": c[a:b],
+             "Adj Close": c[a:b], "Volume": v[a:b]},
+            index=pd.DatetimeIndex(dates[a:b], name="Date"))
+    return out
+
+
 # ---------------------------------------------------------------------------
 # Store
 # ---------------------------------------------------------------------------
@@ -260,7 +304,9 @@ def _fetch_day(exch: str, day: date, session: requests.Session) -> tuple[str, Op
     src = SOURCES[exch]
     for tpl in src["urls"]:
         url = tpl.format(ymd=day.strftime("%Y%m%d"), dmy=day.strftime("%d%m%Y"))
-        content = _http_get(session, url, src["headers"])
+        from .profiler import timed
+        with timed(f"net: {exch} price file"):
+            content = _http_get(session, url, src["headers"])
         if content is None:
             continue
         df = parse_bhav(content)
@@ -279,7 +325,7 @@ def _session(exch: str) -> requests.Session:
 
 
 def update(exch: str, calendar_days: int = DEFAULT_CALENDAR_DAYS,
-           progress: Optional[Callable[[str], None]] = None, workers: int = 3) -> dict:
+           progress: Optional[Callable[[str], None]] = None, workers: int = 4) -> dict:
     """Download every missing trading day in the window. Idempotent; safe to
     call often (no-op when current). Returns counts for logging."""
     today = datetime.now(IST).date()
@@ -386,14 +432,17 @@ def ensure_updated(cfg: Optional[dict] = None, exchanges: Optional[list[str]] = 
             progress(f"downloading {_progress['msg']}")
     try:
         results = []
-        for exch in targets:
+        res_lock = threading.Lock()
+
+        def one(exch: str) -> None:
             attempt_path = _dir(exch) / "_last_attempt.json"
             last = _read_json(attempt_path)
             if last.get("failed") and time.time() - last.get("ts", 0) < RETRY_COOLDOWN_MIN * 60:
-                continue  # exchange was unreachable recently — use what's stored
+                return  # exchange was unreachable recently — use what's stored
             try:
                 r = update(exch, st["calendar_days"], progress)
-                results.append(r)
+                with res_lock:
+                    results.append(r)
                 failed = r["blocked"] or r["gave_up"]
                 try:
                     attempt_path.write_text(json.dumps({"ts": time.time(), "failed": failed}),
@@ -408,6 +457,11 @@ def ensure_updated(cfg: Optional[dict] = None, exchanges: Optional[list[str]] = 
                           flush=True)
             except Exception as e:
                 print(f"[prices] {exch} update failed: {type(e).__name__}: {e}", flush=True)
+
+        # NSE and BSE are different servers: fetch both at once.
+        with ThreadPoolExecutor(max_workers=max(1, len(targets))) as ex:
+            list(ex.map(one, targets))
+        results.sort(key=lambda r: list(SOURCES).index(r["exchange"]))
         return results
     finally:
         _lock.release()
@@ -419,19 +473,24 @@ def ensure_updated(cfg: Optional[dict] = None, exchanges: Optional[list[str]] = 
 
 def _load_frames(exch: str, syms: set[str], calendar_days: int) -> pd.DataFrame:
     cutoff = (datetime.now(IST).date() - timedelta(days=calendar_days)).isoformat()
-    parts = []
-    for day in stored_days(exch):
-        if day < cutoff:
-            continue
+    days = [d for d in stored_days(exch) if d >= cutoff]
+
+    def read(day: str) -> Optional[pd.DataFrame]:
         try:
             df = pd.read_csv(STORE_DIR / exch / f"{day}.csv.gz",
-                             dtype={"sym": str, "series": str})
+                             dtype={"sym": str, "series": str},
+                             usecols=["sym", "open", "high", "low", "close", "prev_close", "volume"])
         except Exception:
-            continue
+            return None
         df = df[df["sym"].isin(syms)]
-        if not df.empty:
-            df["date"] = day
-            parts.append(df)
+        if df.empty:
+            return None
+        df["date"] = day
+        return df
+
+    # gzip inflate and the CSV parser release the GIL, so threads overlap.
+    with ThreadPoolExecutor(max_workers=8) as ex:
+        parts = [p for p in ex.map(read, days) if p is not None]
     if not parts:
         return pd.DataFrame()
     return pd.concat(parts, ignore_index=True)
@@ -472,16 +531,17 @@ def histories_for(tickers: list[str], cfg: Optional[dict] = None,
             continue
         if progress:
             progress(f"assembling {exch} price history")
-        frames = _load_frames(exch, set(want[exch]), st["calendar_days"])
+        from .profiler import timed
+        with timed(f"disk: read {exch} price files"):
+            frames = _load_frames(exch, set(want[exch]), st["calendar_days"])
         if frames.empty:
             continue
-        for sym, g in frames.groupby("sym", sort=False):
-            if len(g) < MIN_ROWS:
-                continue
-            try:
-                out[want[exch][sym]] = build_history(g)
-            except Exception:
-                continue
+        _t_build = time.perf_counter()
+        for sym, hist in build_histories(frames, MIN_ROWS).items():
+            out[want[exch][sym]] = hist
+        from .profiler import current
+        if current():
+            current().add(f"cpu: build {exch} histories", time.perf_counter() - _t_build)
     return out
 
 

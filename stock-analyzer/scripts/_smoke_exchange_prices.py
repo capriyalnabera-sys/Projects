@@ -193,6 +193,15 @@ def main():
         print(f"histories: 4/6 covered (NEWCO too new, UNKNOWN absent); split adjusted "
               f"(worst daily move {worst:.1%}); thin stock analyzable")
 
+        # --- vectorized builder == per-symbol builder ----------------------
+        frames = ep._load_frames("NSE", {"RELIANCE", "THINCO", "SPLITCO", "NEWCO"}, WINDOW)
+        fast = ep.build_histories(frames, ep.MIN_ROWS)
+        assert set(fast) == {"RELIANCE", "THINCO", "SPLITCO"}, sorted(fast)
+        for sym, hf in fast.items():
+            slow = ep.build_history(frames[frames["sym"] == sym])
+            pd.testing.assert_frame_equal(hf, slow, check_freq=False, rtol=1e-9)
+        print("vectorized: build_histories() matches build_history() exactly for every symbol")
+
         # --- staleness ----------------------------------------------------
         stale_dir = tmp / "stale"
         (stale_dir / "NSE").mkdir(parents=True)
