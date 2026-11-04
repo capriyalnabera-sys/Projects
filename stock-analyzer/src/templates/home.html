@@ -10,7 +10,7 @@
       {% if no_data_count %}· <span title="Suspended, delisted or dormant listings — rechecked weekly">{{ no_data_count }} have no price data</span>{% endif %}
       {% if rows %} · avg score <strong class="{% if avg_score > 0 %}pos{% elif avg_score < 0 %}neg{% endif %}">{{ '{:+.2f}'.format(avg_score) }}</strong>{% endif %}
       {% if status.running %}· <span style="color: var(--yellow);">refreshing {{ status.done }}/{{ status.total }}</span>
-      {% elif status.finished_at %}· last refresh {{ status.elapsed_sec }}s ago{% endif %}
+      {% elif status.finished_at %}· last refresh took {{ status.elapsed_sec }}s{% endif %}
       {% if last_profile and last_profile.total_seconds and not status.running %}
       <div style="margin-top:2px;">Last refresh took {{ "%.0f" | format(last_profile.total_seconds) }} s{% if last_profile.bottleneck %} · slowest step: {{ last_profile.bottleneck }}{% endif %} · <a href="/api/profile">full breakdown</a></div>
       {% endif %}
@@ -240,7 +240,7 @@ function refresh() {
     });
 }
 function refreshAll() {
-  if (!confirm('Refresh ~700-800 stocks across all NIFTY universes? Takes ~10–15 min.')) return;
+  if (!confirm('Refresh every Indian stock with market cap ≥ ₹500 cr (NSE + SME + BSE)?\n\nThe first run checks each stock\'s share count once (several minutes); later runs skip unchanged stocks and are much faster.')) return;
   fetch('/api/refresh-all', { method: 'POST' })
     .then(r => r.json()).then(d => {
       if (d.started) pollStatus();

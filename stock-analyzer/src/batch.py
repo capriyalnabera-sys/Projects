@@ -147,16 +147,31 @@ def _illiquid_short_circuit(ticker: str, hist, tech, cfg: dict,
 
 
 # Bump when analysis logic changes, so every stock is re-analyzed once.
-ANALYSIS_VERSION = "2026-11-04"
+ANALYSIS_VERSION = "2026-11-04b"
+
+
+def calibration_stamp() -> str:
+    """The parts of the learned calibration that can change a verdict."""
+    try:
+        from . import calibration as calib_mod
+        c = calib_mod.read_cached() or {}
+        floor = c.get("learned_buy_min_score")
+        return f"{bool(c.get('apply_buy_floor'))}:{round(floor, 2) if floor is not None else None}"
+    except Exception:
+        return "none"
 
 
 def input_key(history, regime: Optional[dict], cfg: Optional[dict],
-              macro: Optional[dict] = None) -> Optional[str]:
-    """Fingerprint of everything a verdict depends on that can change within a
-    day: the latest price bar, the market regime, the recommendation settings,
-    and the date (fundamentals caches and earnings proximity roll daily). Two
-    runs with the same key would produce the same verdict, so the second one
-    is skipped."""
+              macro: Optional[dict] = None, tg: Optional[TelegramSignal] = None,
+              calib: str = "") -> Optional[str]:
+    """Fingerprint of what a verdict depends on that can change within a day:
+    the latest price bar, market regime, macro moves, the stock's Telegram
+    signal, the learned BUY floor, the recommendation settings, and the date
+    (fundamentals caches and earnings proximity roll daily). Two runs with the
+    same key would produce the same verdict, so the second one is skipped.
+    Sector medians are recomputed after each batch and reach verdicts on the
+    next day's run (they move slowly; keying on them would redo every stock
+    on every refresh)."""
     try:
         h = history.dropna(subset=["Close"])
         last_day = h.index[-1].date().isoformat()
@@ -166,9 +181,10 @@ def input_key(history, regime: Optional[dict], cfg: Optional[dict],
     reg = regime or {}
     rec_cfg = json.dumps((cfg or {}).get("recommendation", {}), sort_keys=True, default=str)
     from . import macro as macro_mod
+    tg_key = f"{tg.mentions_7d}:{round(tg.avg_sentiment, 2)}" if tg and tg.mentions_7d else "0"
     return "|".join([ANALYSIS_VERSION, date.today().isoformat(), last_day, str(last_close),
                      str(reg.get("state")), str(reg.get("hold_zone")), rec_cfg,
-                     macro_mod.fingerprint(macro)])
+                     macro_mod.fingerprint(macro), tg_key, calib])
 
 
 class _NoData:
@@ -264,9 +280,16 @@ def analyze_one(
         # Prefer the RAW verdict (pre-overlay) if available so we compare
         # apples-to-apples — without this, regime downgrades in the prior
         # batch would leak into persistence on the next batch.
-        prior = read_result(ticker, cache_root)
-        prior_verdict = (prior or {}).get("raw_verdict") or (prior or {}).get("verdict")
-        prior_score = (prior or {}).get("combined_score")
+        prior = read_result(ticker, cache_root) or {}
+        prior_verdict = prior.get("raw_verdict") or prior.get("verdict")
+        prior_score = prior.get("combined_score")
+        # Smooth against the last analysis from an EARLIER day: a re-run on
+        # the same day reuses that day's base, so the score doesn't drift
+        # further with every extra refresh.
+        if str(prior.get("as_of", ""))[:10] == datetime.now(timezone.utc).date().isoformat() \
+                and "smooth_base_score" in prior:
+            prior_score = prior.get("smooth_base_score")
+            prior_verdict = prior.get("smooth_base_verdict")
 
         rec = recommend.recommend(
             tech, fund, cfg.get("recommendation", {}), sd.last_close, tg_signal,
@@ -280,6 +303,8 @@ def analyze_one(
         )
         serialized = _serialize(ticker.upper(), sd, tech, fund, rec, tg_signal)
         serialized["earnings_in_days"] = days_left
+        serialized["smooth_base_score"] = prior_score
+        serialized["smooth_base_verdict"] = prior_verdict
         return serialized
     except Exception:
         return None
@@ -297,9 +322,94 @@ def cache_path(ticker: str, cache_root: Path) -> Path:
 
 
 def write_result(result: dict, cache_root: Path) -> None:
+    # Compact JSON: ~40% smaller and faster to write/parse than indented.
     cache_path(result["ticker"], cache_root).write_text(
-        json.dumps(result, indent=2), encoding="utf-8"
+        json.dumps(result, separators=(",", ":"), default=str), encoding="utf-8"
     )
+
+
+# ---- Consolidated results index ---------------------------------------------
+# Pages and the skip-unchanged check need thousands of results at once. Parsing
+# one JSON per stock costs ~1-2 s per few thousand; one pickle of all of them
+# loads in ~0.1 s. Each entry remembers its file's mtime, so a result written
+# by any path (batch, retry, older code) is picked up from its file instead.
+_INDEX_LOCK = threading.Lock()
+_INDEX_MEM: dict = {"key": None, "data": {}}
+
+
+def _index_path(cache_root: Path) -> Path:
+    return analysis_dir(cache_root) / "_index.pkl"
+
+
+def _load_index(cache_root: Path) -> dict:
+    import pickle
+    p = _index_path(cache_root)
+    try:
+        st = p.stat()
+    except FileNotFoundError:
+        return {}
+    key = (str(p), st.st_mtime_ns, st.st_size)
+    with _INDEX_LOCK:
+        if _INDEX_MEM["key"] == key:
+            return _INDEX_MEM["data"]
+    try:
+        with p.open("rb") as f:
+            d = pickle.load(f)
+        if not isinstance(d, dict):
+            d = {}
+    except Exception:
+        d = {}
+    with _INDEX_LOCK:
+        _INDEX_MEM.update(key=key, data=d)
+    return d
+
+
+def _save_index(cache_root: Path, d: dict) -> None:
+    import pickle
+    p = _index_path(cache_root)
+    try:
+        tmp = p.with_suffix(f".tmp{threading.get_ident()}")
+        with tmp.open("wb") as f:
+            pickle.dump(d, f, protocol=pickle.HIGHEST_PROTOCOL)
+        tmp.replace(p)
+        st = p.stat()
+        with _INDEX_LOCK:
+            _INDEX_MEM.update(key=(str(p), st.st_mtime_ns, st.st_size), data=d)
+    except Exception:
+        pass
+
+
+def read_results(tickers: list[str], cache_root: Path) -> dict[str, dict]:
+    """{TICKER: result} for every ticker with a result file — via the index,
+    re-reading only files that changed since it was written. Returned dicts
+    are copies (callers may add display fields)."""
+    idx = _load_index(cache_root)
+    out: dict[str, dict] = {}
+    updates: dict = {}
+    for t in tickers:
+        tk = t.upper()
+        p = cache_path(tk, cache_root)
+        try:
+            st = p.stat()
+        except (FileNotFoundError, OSError):
+            continue
+        m = (st.st_mtime_ns, st.st_size)   # size too: coarse-mtime filesystems
+        e = idx.get(tk)
+        if e is not None and e[0] == m:
+            out[tk] = dict(e[1])
+            continue
+        try:
+            r = json.loads(p.read_text(encoding="utf-8"))
+        except Exception:
+            continue
+        if isinstance(r, dict):
+            out[tk] = dict(r)
+            updates[tk] = (m, r)
+    if updates:
+        with _INDEX_LOCK:
+            merged = {**_INDEX_MEM["data"], **updates} if _INDEX_MEM["data"] is idx else {**idx, **updates}
+        _save_index(cache_root, merged)
+    return out
 
 
 def read_result(ticker: str, cache_root: Path) -> Optional[dict]:
@@ -312,13 +422,34 @@ def read_result(ticker: str, cache_root: Path) -> Optional[dict]:
         return None
 
 
+def read_all_results(cache_root: Path) -> list[dict]:
+    """Every stored result (via the index)."""
+    d = analysis_dir(cache_root)
+    tks = [f.stem.replace("_AMP_", "&") for f in d.glob("*.json") if not f.name.startswith("_")]
+    return list(read_results(tks, cache_root).values())
+
+
+def index_put(cache_root: Path, results: dict[str, dict]) -> None:
+    """Record just-written results in the index (no re-parsing)."""
+    if not results:
+        return
+    updates = {}
+    for tk, r in results.items():
+        try:
+            st = cache_path(tk, cache_root).stat()
+            updates[tk.upper()] = ((st.st_mtime_ns, st.st_size), r)
+        except OSError:
+            continue
+    idx = _load_index(cache_root)
+    _save_index(cache_root, {**idx, **updates})
+
+
 def read_universe(tickers: list[str], cache_root: Path) -> list[dict]:
-    out: list[dict] = []
-    for t in tickers:
-        r = read_result(t, cache_root)
-        if r:
-            out.append(r)
-    return out
+    """Results for these tickers, in order; rows missing a verdict (partial
+    or foreign files) are left out so pages never trip over them."""
+    res = read_results(tickers, cache_root)
+    return [r for r in (res.get(t.upper()) for t in tickers)
+            if r and r.get("verdict") is not None and r.get("combined_score") is not None]
 
 
 # Default liquidity floor for the "live set" — matches recommend.py's HOLD gate.
@@ -334,8 +465,9 @@ def compute_live_set(tickers: list[str], cache_root: Path,
     sub-floor turnover) is dropped so routine refreshes stay fast.
     """
     live: list[str] = []
+    res = read_results(tickers, cache_root)
     for t in tickers:
-        r = read_result(t, cache_root)
+        r = res.get(t.upper())
         if not r:
             continue
         adv = r.get("avg_daily_value_cr")
@@ -409,6 +541,7 @@ def run_batch(
                       - timedelta(days=NO_DATA_RECHECK_DAYS)).isoformat()
     to_process: list[str] = []
     skipped = 0
+    ttl_prev = read_results(tickers, cache_root) if ttl_minutes > 0 else {}
     skipped_no_data = 0
     for t in tickers:
         seen = no_data_reg.get(t.upper())
@@ -417,7 +550,7 @@ def run_batch(
             skipped_no_data += 1
             continue
         if ttl_minutes > 0:
-            existing = read_result(t, cache_root)
+            existing = ttl_prev.get(t.upper())
             if existing:
                 try:
                     age = time.time() - datetime.fromisoformat(existing["as_of"]).timestamp()
@@ -446,6 +579,7 @@ def run_batch(
         "started_at": started_at,
     })
     histories: dict = {}
+    ep_failed = False
     if to_process:
         # Exchange daily price files first — they cover the whole NSE/BSE
         # listing in one place. Yahoo only fills in what they don't cover.
@@ -460,6 +594,7 @@ def run_batch(
         except Exception as e:
             print(f"[prices] exchange files unavailable: {type(e).__name__}: {e}", flush=True)
             histories = {}
+            ep_failed = True
         _t = prof.mark("price history: exchange files", _t)
         prof.meta["from_exchange_files"] = len(histories)
         rest = [t for t in to_process if t.upper() not in histories]
@@ -477,6 +612,7 @@ def run_batch(
     # Prices now come from exchange files published once a day, so a repeat
     # refresh the same day would otherwise redo every stock on identical data.
     skipped_unchanged = 0
+    calib_stamp = calibration_stamp()
     if skip_unchanged and to_process:
         if hasattr(regime, "result"):
             try:
@@ -488,11 +624,18 @@ def run_batch(
                 macro = macro.result()
             except Exception:
                 macro = None
+        if hasattr(tg_signals, "result"):
+            try:
+                tg_signals = tg_signals.result()
+            except Exception:
+                tg_signals = {}
         keep: list[str] = []
+        prev_all = read_results(to_process, cache_root)
         for tk in to_process:
             h = histories.get(tk.upper())
-            key = input_key(h, regime, cfg, macro) if h is not None and not getattr(h, "empty", True) else None
-            prev = read_result(tk, cache_root) if key else None
+            key = input_key(h, regime, cfg, macro, (tg_signals or {}).get(tk.upper()),
+                            calib_stamp) if h is not None and not getattr(h, "empty", True) else None
+            prev = prev_all.get(tk.upper()) if key else None
             if key and prev and prev.get("input_key") == key:
                 skipped_unchanged += 1
                 continue
@@ -610,7 +753,8 @@ def run_batch(
             _fill_name(result)
             h = histories.get(t.upper())
             if h is not None and not getattr(h, "empty", True):
-                result["input_key"] = input_key(h, reg, cfg, macro)
+                result["input_key"] = input_key(h, reg, cfg, macro, (tgs or {}).get(t.upper()),
+                                                calib_stamp)
             write_result(result, cache_root)
             fresh_results[t.upper()] = result
         return t, result
@@ -663,8 +807,26 @@ def run_batch(
         _pst = _ep_mod._settings(cfg)
         nse_trusted = _pst["NSE"] and _ep_mod.is_fresh("NSE")
         bse_trusted = _pst["BSE"] and _ep_mod.is_fresh("BSE")
+        # Symbols that traded recently, per the exchange's own files. A name
+        # is only declared no-data without a Yahoo check when it is absent
+        # from these (not merely from `histories`, which also drops short
+        # IPO histories and renamed symbols).
+        traded = {"NSE": _ep_mod.recent_symbols("NSE") if nse_trusted and need_history else set(),
+                  "BSE": _ep_mod.recent_symbols("BSE") if bse_trusted and need_history else set()}
     except Exception:
         nse_trusted = bse_trusted = False
+        traded = {"NSE": set(), "BSE": set()}
+    if ep_failed:
+        nse_trusted = bse_trusted = False
+
+    def _absent_from_files(tk: str) -> bool:
+        u = tk.upper()
+        exch = "BSE" if u.endswith(".BO") else "NSE"
+        if not (bse_trusted if exch == "BSE" else nse_trusted) or not traded[exch]:
+            return False
+        sym = u[:-3] if u.endswith((".BO", ".NS")) else u
+        alias = data.TICKER_ALIASES.get(u, u).replace(".NS", "").replace(".BO", "")
+        return sym not in traded[exch] and alias not in traded[exch]
     prof.meta.update({"nse_store_trusted": nse_trusted, "bse_store_trusted": bse_trusted})
     if need_net or need_history:
         import yfinance as _yf
@@ -766,7 +928,7 @@ def run_batch(
         for tk in need_net:
             _fundamentals(tk)
         for tk in need_history:
-            if (tk.upper().endswith(".BO") and bse_trusted) or (not tk.upper().endswith(".BO") and nse_trusted):
+            if _absent_from_files(tk):
                 # The exchange's own files list every stock that traded; this
                 # one isn't there, so it has no price data. No Yahoo check.
                 no_history.add(tk.upper())
@@ -815,7 +977,12 @@ def run_batch(
             )
             if result:
                 _fill_name(result)
+                h = histories.get(t.upper())
+                if h is not None and not getattr(h, "empty", True):
+                    result["input_key"] = input_key(h, reg, cfg, macro,
+                                                    (tgs or {}).get(t.upper()), calib_stamp)
                 write_result(result, cache_root)
+                fresh_results[t.upper()] = result
             return t, result
 
         with ThreadPoolExecutor(max_workers=max_workers) as ex:
@@ -846,9 +1013,21 @@ def run_batch(
     for t in no_data_now:
         no_data_reg[t.upper()] = today_iso
     for t in to_process:
-        if t not in no_data_now and read_result(t, cache_root):
+        if t not in no_data_now and t.upper() not in fresh_results and cache_path(t, cache_root).exists():
             no_data_reg.pop(t.upper(), None)
+    for t in fresh_results:
+        no_data_reg.pop(t, None)
     save_no_data(cache_root, no_data_reg)
+    index_put(cache_root, fresh_results)
+    # A stock with no price data (suspended, delisted, renamed) must not keep
+    # showing its last verdict on the pages, the live set or daily snapshots.
+    for t in no_data_reg:
+        try:
+            cache_path(t, cache_root).unlink()
+        except FileNotFoundError:
+            pass
+        except Exception:
+            pass
 
     # Compute fresh sector stats from this batch's results so the NEXT batch
     # has up-to-date sector medians for relative scoring.
@@ -883,8 +1062,10 @@ def run_batch(
             except Exception:
                 snap = {}
         # Nothing re-analyzed and today's snapshot exists: it already stands.
-        for t in (tickers if (ok or not snap) else []):
-            r = fresh_results.get(t.upper()) or read_result(t, cache_root)
+        snap_tickers = tickers if (ok or not snap) else []
+        prev_rows = read_results([t for t in snap_tickers if t.upper() not in fresh_results], cache_root)
+        for t in snap_tickers:
+            r = fresh_results.get(t.upper()) or prev_rows.get(t.upper())
             if r:
                 snap[t.upper()] = {
                     "verdict": r.get("verdict"),

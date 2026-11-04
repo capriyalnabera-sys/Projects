@@ -358,8 +358,13 @@ def suggest_strategies(a: FnoAnalysis, step: float) -> list[dict]:
     out: list[dict] = []
     iv_state = _classify_iv(a.atm_iv, a.vix)
     atm = a.atm_strike or (round(a.spot / step) * step if step else a.spot)
-    res = a.resistances[0]["strike"] if a.resistances else atm + 4 * step
-    sup = a.supports[0]["strike"] if a.supports else atm - 4 * step
+    # Walls at (or right next to) the ATM strike — common near expiry — would
+    # put both legs on one strike. Use the strongest wall at least two steps
+    # away; else a ±4-step default.
+    res = next((w["strike"] for w in (a.resistances or []) if w["strike"] >= atm + 2 * step),
+               atm + 4 * step)
+    sup = next((w["strike"] for w in (a.supports or []) if w["strike"] <= atm - 2 * step),
+               atm - 4 * step)
     lot = a.lot
 
     def s(name, legs, rationale, risk):

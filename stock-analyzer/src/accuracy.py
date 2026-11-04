@@ -10,6 +10,8 @@ Reports per-verdict:
 """
 from __future__ import annotations
 
+import pandas as pd
+
 import json
 import time
 from collections import defaultdict
@@ -155,7 +157,8 @@ def evaluate(snap_dir: Path, horizons_days: tuple[int, ...] = (5, 20, 60), force
         score = rec.get("combined_score") or 0
         score_bin = _score_bin(score)
         for h_days in horizons_days:
-            target = snap_date + timedelta(days=h_days)
+            # Horizons are trading days (weekdays; exchange holidays aside).
+            target = (pd.Timestamp(snap_date) + pd.offsets.BDay(h_days)).date()
             if target > today:
                 continue
             exit_close = _close_at(hist, target)

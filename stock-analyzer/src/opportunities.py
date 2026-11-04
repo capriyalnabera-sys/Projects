@@ -190,7 +190,7 @@ def _scan_washout(row: dict, state: str) -> tuple[bool, list, list, float]:
     c.require(v in ("BUY", "ACCUMULATE", "HOLD") and raw not in ("REDUCE", "AVOID"), f"verdict {v}")
     c.require(rr is not None and rr >= rr_min, f"R:R {rr:.1f}" if rr else None)
     if state == "risk_off":
-        c.require(dy is not None and (dy * 100 if dy < 1 else dy) >= 1)
+        c.require(dy is not None and dy * 100 >= 1)
     if c.ok and vol is not None and vol >= 2.0:
         c.flag("Capitulation climax — panic volume")
     c.flag("Watch until stabilization")
@@ -265,7 +265,7 @@ def _scan_yield(row: dict, state: str) -> tuple[bool, list, list, float]:
     rsi, up = _f(row, "rsi_14"), _f(row, "upside_pct")
     v, rr, down = _verdict(row), _rr(row), _f(row, "downside_pct")
 
-    dy_pct = dy * 100 if (dy is not None and dy < 1) else dy  # tolerate fraction or pct
+    dy_pct = dy * 100 if dy is not None else None   # stored as a fraction
     quality = (roce or roe or 0) * 100
     dy_min = 2.0 if state == "risk_off" else (3.0 if state == "risk_on" else 2.5)
 
@@ -336,6 +336,8 @@ def _scan_buzz(row: dict, state: str) -> tuple[bool, list, list, float]:
     if rsi is not None:
         c.require(rsi <= 72)
     hit = tr.get("hit_rate") if isinstance(tr, dict) else None
+    if hit is not None and hit > 1:
+        hit = hit / 100                  # calibration reports percent
     n = tr.get("n") if isinstance(tr, dict) else None
     if hit is not None and n is not None and n >= 5:
         c.require(hit >= 0.5)
@@ -445,6 +447,8 @@ def _opportunity_score(row: dict, matched: list[str], best_pct: float,
 
     tr = row.get("track_record") or {}
     hit, n = (tr.get("hit_rate"), tr.get("n")) if isinstance(tr, dict) else (None, None)
+    if hit is not None and hit > 1:
+        hit = hit / 100                  # calibration reports percent
     track_mult = 0.90 if (hit is not None and n is not None and n >= 5 and hit < 0.40) else 1.0
 
     score = int(round(clamp((verdict_pts + conviction + rr_pts + liq_pts + setup_pts)

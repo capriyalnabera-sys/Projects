@@ -146,7 +146,9 @@ def _prewarm_pages_async() -> None:
     background so the first human visitor gets the memoized ~50ms response
     instead of paying the ~6s cold render of the 1,900-row screener."""
     import requests as _rq
-    for url in ("http://127.0.0.1:5000/screener", "http://127.0.0.1:5000/"):
+    for url in ("http://127.0.0.1:5000/screener", "http://127.0.0.1:5000/",
+                "http://127.0.0.1:5000/screener?universe=alllisted",
+                "http://127.0.0.1:5000/?universe=alllisted"):
         try:
             _rq.get(url, timeout=120)
         except Exception:
@@ -249,12 +251,13 @@ def _build_universes_meta(active_name: str, cache_root: Path) -> list[dict]:
         meta: list[dict] = []
         for u_name in _UNIVERSE_MENU:
             try:
-                ut = universe.get_universe(u_name, cache_dir=cache_root / "universe")
-                if u_name.lower().replace("_", "") in _BIG_UNIVERSES:
-                    # File-existence checks only (no JSON parsing) — cheap.
-                    cached = sum(1 for t in ut if batch.cache_path(t, cache_root).exists())
+                if u_name.lower().replace("_", "") in _BIG_UNIVERSES | {"liveset"}:
+                    # Disk only — a page render never triggers the exchange downloads.
+                    ut = _resolve_display_tickers(u_name, cache_root)
                 else:
-                    cached = sum(1 for t in ut if batch.read_result(t, cache_root) is not None)
+                    ut = universe.get_universe(u_name, cache_dir=cache_root / "universe")
+                # File-existence checks only (no JSON parsing) — cheap.
+                cached = sum(1 for t in ut if batch.cache_path(t, cache_root).exists())
                 meta.append({"name": u_name, "label": _UNIVERSE_LABELS.get(u_name, u_name.upper()),
                              "total": len(ut), "cached": cached,
                              "is_big": u_name.lower().replace("_", "") in _BIG_UNIVERSES})
@@ -759,9 +762,16 @@ def fno_page(symbol: str = "NIFTY"):
         from . import fno_history, fno_alerts, fno_accuracy
         analysis = fno_signals.full_analysis(sym, cfg, expiry=expiry, force=force)
         chain = fno_mod.get_chain(sym, expiry=expiry)
+        # BSE payloads can lack spot; the analysis borrowed one — the chain
+        # table needs it too.
+        if chain is not None and not chain.get("spot") and analysis is not None:
+            chain = {**chain, "spot": analysis.spot}
         # Page views feed the same history the background tracker writes —
-        # maybe_record dedups on the exchange timestamp, so no double entries.
-        if analysis is not None:
+        # maybe_record dedups on the exchange timestamp. Only the nearest
+        # expiry is recorded: mixing expiries would corrupt the intraday
+        # shift readings and the end-of-day backtest.
+        nearest = ((chain or {}).get("expiries") or [None])[0]
+        if analysis is not None and (expiry is None or expiry == nearest):
             fno_history.maybe_record(analysis)
         shifts = fno_history.intraday_shifts(fno_history.intraday(sym))
         sparks = {}
@@ -1021,14 +1031,9 @@ def api_research(ticker: str):
             download_new=False,
         )
     except Exception as e:
-        _telegram_lock.release()
         return jsonify({"available": False, "reason": str(e)})
     finally:
-        if _telegram_lock.locked():
-            try:
-                _telegram_lock.release()
-            except RuntimeError:
-                pass
+        _telegram_lock.release()        # acquired above by this request only
 
     tk = ticker.upper()
     if tk not in agg or not agg[tk].mentions:
@@ -1313,6 +1318,27 @@ _refresh_thread: Optional[threading.Thread] = None
 _telegram_lock = threading.Lock()
 
 
+def _run_guarded(fn, *args) -> None:
+    """Run a refresh worker; whatever happens (exception, early return), the
+    status file must not be left saying 'running' — the pages would poll and
+    show 'refreshing…' forever."""
+    try:
+        fn(*args)
+    except Exception:
+        import traceback
+        traceback.print_exc()
+    finally:
+        try:
+            cache_root = _cache_root()
+            st = batch.read_status(cache_root)
+            if st.get("running"):
+                st.update({"running": False, "current": "",
+                           "error": st.get("error") or "refresh stopped before finishing"})
+                batch.write_status(cache_root, st)
+        except Exception:
+            pass
+
+
 def _build_aliases_from_cache(tickers: list[str], cache_root: Path) -> dict[str, str]:
     """Build company-name → ticker aliases from already-cached batch results.
     Used so Telegram scans can match research reports that say 'Borosil Renewables'
@@ -1379,7 +1405,7 @@ def _refresh_worker(name: str, ttl_minutes: int, with_telegram: bool = True,
         tg_signals: dict[str, TelegramSignal] = {}
         if with_telegram:
             tcfg = cfg.get("telegram", {})
-            if tcfg.get("api_id") and tcfg.get("api_hash"):
+            if tcfg.get("api_id") and tcfg.get("api_hash") and _telegram_lock.acquire(timeout=30):
                 try:
                     from . import telegram_ingest
                     aliases = _build_aliases_from_cache(tickers, cache_root)
@@ -1404,6 +1430,8 @@ def _refresh_worker(name: str, ttl_minutes: int, with_telegram: bool = True,
                     # Telegram is optional — bail to plain batch if anything goes wrong
                     # (session locked by another process, network issue, etc.)
                     tg_signals = {}
+                finally:
+                    _telegram_lock.release()
         return tg_signals
 
     tg_signals = _side.submit(_cached_research_scan, cache_root, cfg, tickers, _scan_research)
@@ -1411,6 +1439,17 @@ def _refresh_worker(name: str, ttl_minutes: int, with_telegram: bool = True,
                              ttl_minutes=ttl_minutes, regime=regime, skip_unchanged=not force,
                              macro=macro_f)
     _side.shutdown(wait=False)
+
+    # Full sweep of the big universe: rebuild the live set (liquid names with
+    # data) behind the NSE+BSE tab.
+    if is_big and full_sweep and result and result.get("ok"):
+        try:
+            live = batch.compute_live_set(full_universe, cache_root,
+                                          min_turnover_cr=batch._liquidity_floor(cfg))
+            if live:
+                universe.save_live_set(live, cache_root / "universe")
+        except Exception:
+            pass
     _after_refresh(result)
 
 
@@ -1680,7 +1719,8 @@ def api_refresh():
         if _refresh_thread and _refresh_thread.is_alive():
             return jsonify({"started": False, "reason": "refresh already running"}), 409
         _refresh_thread = threading.Thread(
-            target=_refresh_worker, args=(name, ttl, use_tg, full_sweep, force), daemon=True
+            target=_run_guarded, args=(_refresh_worker, name, ttl, use_tg, full_sweep, force),
+            daemon=True
         )
         _refresh_thread.start()
     return jsonify({"started": True, "universe": name, "ttl_minutes": ttl,
@@ -1689,8 +1729,8 @@ def api_refresh():
 
 @app.route("/api/refresh-all", methods=["GET", "POST"])
 def api_refresh_all():
-    """Refresh deduplicated tickers across every universe — typically ~700-800 stocks.
-    Cache is per-ticker so a stock in multiple universes only gets analyzed once."""
+    """Refresh NIFTY 50 + SENSEX + every listed stock above the market-cap floor
+    (ALL UNIVERSE). Cache is per-ticker, so each stock is analyzed once."""
     global _refresh_thread
     ttl = int(request.args.get("ttl_minutes", "0") or 0)
     use_tg = request.args.get("telegram", "1") == "1"
@@ -1699,7 +1739,7 @@ def api_refresh_all():
         if _refresh_thread and _refresh_thread.is_alive():
             return jsonify({"started": False, "reason": "refresh already running"}), 409
         _refresh_thread = threading.Thread(
-            target=_refresh_all_worker, args=(ttl, use_tg, force), daemon=True
+            target=_run_guarded, args=(_refresh_all_worker, ttl, use_tg, force), daemon=True
         )
         _refresh_thread.start()
     return jsonify({"started": True, "scope": "all-universes", "ttl_minutes": ttl, "telegram": use_tg})
@@ -1731,6 +1771,15 @@ def _first_run_autobuild():
     page reads '0 stocks cached'. Kick a NIFTY 50 batch automatically — the
     header shows live progress and bigger universes stay one click away."""
     global _refresh_thread
+    # A status left 'running' by a killed process is stale: nothing is
+    # running yet in this one.
+    try:
+        st = batch.read_status(_cache_root())
+        if st.get("running") and not (_refresh_thread and _refresh_thread.is_alive()):
+            st.update({"running": False, "current": "", "error": "interrupted (app restarted)"})
+            batch.write_status(_cache_root(), st)
+    except Exception:
+        pass
     try:
         analysis = _cache_root() / "analysis"
         # _status.json and other _-prefixed bookkeeping files don't count as
@@ -1741,7 +1790,8 @@ def _first_run_autobuild():
             if _refresh_thread and _refresh_thread.is_alive():
                 return
             _refresh_thread = threading.Thread(
-                target=_refresh_worker, args=("nifty50", 0, True, False), daemon=True
+                target=_run_guarded, args=(_refresh_worker, "nifty50", 0, True, False),
+                daemon=True
             )
             _refresh_thread.start()
         print("[startup] Analysis cache is empty (first run) — building NIFTY 50 "

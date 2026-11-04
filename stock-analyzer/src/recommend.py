@@ -299,6 +299,12 @@ def recommend(
         # Calibration is purely additive — never block a verdict on its absence.
         pass
 
+    # Action targets belong to positive verdicts only — after every overlay
+    # (regime, earnings, calibration) has had its say. A HOLD carrying a
+    # +100% "upside" would leak into the high-upside lists and R:R scanners.
+    if verdict not in ("BUY", "ACCUMULATE"):
+        trade_target = target_bull = upside = None
+
     plain_summary = _plain_english(verdict, tech, fund, last_close)
 
     return Recommendation(

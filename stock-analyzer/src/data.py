@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import time
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 from typing import Optional, TYPE_CHECKING
 
@@ -58,17 +59,47 @@ _PRICE_SCALED = ("trailingPE", "forwardPE", "priceToBook", "marketCap", "enterpr
 _PRICE_INVERSE = ("dividendYield", "trailingAnnualDividendYield")
 
 
-def reprice_info(info: dict, price: Optional[float]) -> dict:
+def _info_price(info: dict) -> Optional[float]:
+    return next((float(info.get(k)) for k in ("currentPrice", "regularMarketPrice", "previousClose")
+                 if isinstance(info.get(k), (int, float)) and info.get(k) > 0), None)
+
+
+def _real_move_since_info(ticker: str, info: dict, hist) -> "Optional[float] | str":
+    """Price move since the cached .info was fetched, read from the (split-
+    adjusted) history — so a split or bonus doesn't look like a 50% crash.
+    Returns the ratio, None if unknown, or 'corporate_action' when the info's
+    own price disagrees with the history by a split-like factor."""
+    p0 = _info_price(info or {})
+    try:
+        fetched = datetime.fromtimestamp((INFO_CACHE_DIR / f"{ticker.upper()}.json").stat().st_mtime)
+        h = hist["Close"].dropna()
+        idx = h.index.tz_localize(None) if getattr(h.index, "tz", None) is not None else h.index
+        before = h[idx <= pd.Timestamp(fetched)]
+        if before.empty:
+            return None
+        then = float(before.iloc[-1])
+        now = float(h.iloc[-1])
+    except Exception:
+        return None
+    if p0 and then > 0:
+        gap = p0 / then          # info's price vs the adjusted close on that day
+        if gap > 1.35 or gap < 1 / 1.35:
+            return "corporate_action"
+    return now / then if then > 0 else None
+
+
+def reprice_info(info: dict, price: Optional[float], move: Optional[float] = None) -> dict:
     """Bring price-dependent .info ratios up to today's price. P/E, P/B and
     market cap scale with price; dividend yield scales inversely. The cached
-    .info may be several days old; its own price field says how old."""
+    .info may be several days old. `move` is the real price change since it
+    was fetched (from adjusted history); without it the info's own price is
+    compared with today's."""
     if not info or not price:
         return info
-    p0 = next((info.get(k) for k in ("currentPrice", "regularMarketPrice", "previousClose")
-               if isinstance(info.get(k), (int, float)) and info.get(k) > 0), None)
+    p0 = _info_price(info)
     if not p0:
         return info
-    r = float(price) / float(p0)
+    r = move if move else float(price) / float(p0)
     if not 0.2 < r < 5 or abs(r - 1) < 1e-9:
         return info                  # implausible jump (bad data) or nothing to do
     out = dict(info)
@@ -235,7 +266,19 @@ def fetch(
 
     # Disk cache first — the batch normally warmed it in its parallel prefetch.
     # It may be several days old: rescale its price-based ratios to today.
-    info = reprice_info(fetch_info(ticker), float(hist["Close"].iloc[-1]))
+    last = float(hist["Close"].iloc[-1])
+    info = fetch_info(ticker)
+    move = _real_move_since_info(ticker, info, hist)
+    if move == "corporate_action":
+        # Split/bonus since the cached .info: its per-share fields (EPS, book
+        # value) are on the old share count. Fetch a fresh copy once.
+        try:
+            (INFO_CACHE_DIR / f"{ticker.upper()}.json").unlink()
+        except Exception:
+            pass
+        info = fetch_info(ticker)
+        move = None
+    info = reprice_info(info, last, move=move)
 
     return StockData(
         ticker=ticker.upper(),
@@ -312,7 +355,12 @@ def _bulk_fetch_chunk(tickers: list[str], period: str) -> dict[str, "pd.DataFram
     for t in tickers:
         sym = to_yf_symbol(t)
         try:
-            tdf = df[sym] if len(yf_symbols) > 1 else df
+            # yfinance keeps the (Ticker, Price) MultiIndex even for one symbol.
+            if isinstance(df.columns, pd.MultiIndex):
+                lv0 = df.columns.get_level_values(0)
+                tdf = df[sym] if sym in lv0 else df.xs(sym, axis=1, level=1)
+            else:
+                tdf = df
             if hasattr(tdf, "dropna"):
                 tdf = tdf.dropna(how="all")
             if tdf is not None and not tdf.empty:

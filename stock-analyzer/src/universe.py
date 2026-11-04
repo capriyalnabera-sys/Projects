@@ -146,6 +146,15 @@ def _fetch_nse_sme(cache_dir: Path) -> list[dict]:
     return _fetch_nse_csv(cache_dir, NSE_SME_LIST_URL, "_nse_sme_all.json", NSE_SME_SERIES)
 
 
+def _stale_cache(cache_path: Path) -> list[dict]:
+    """A list cache past its TTL — better than nothing when the exchange
+    refuses the refetch (NSE blocks scripted clients often)."""
+    try:
+        return json.loads(cache_path.read_text(encoding="utf-8")) if cache_path.exists() else []
+    except Exception:
+        return []
+
+
 def _fetch_nse_csv(cache_dir: Path, url: str, cache_name: str, series_ok: tuple) -> list[dict]:
     cache_path = cache_dir / cache_name
     if cache_path.exists() and (time.time() - cache_path.stat().st_mtime < ALL_LISTED_TTL_SECONDS):
@@ -160,7 +169,7 @@ def _fetch_nse_csv(cache_dir: Path, url: str, cache_name: str, series_ok: tuple)
             timeout=20,
         )
         if r.status_code != 200 or not r.text:
-            return []
+            return _stale_cache(cache_path)
         # Columns: SYMBOL, NAME OF COMPANY, SERIES, DATE OF LISTING, PAID UP VALUE,
         #          MARKET LOT, ISIN NUMBER, FACE VALUE
         out: list[dict] = []
@@ -176,9 +185,9 @@ def _fetch_nse_csv(cache_dir: Path, url: str, cache_name: str, series_ok: tuple)
             out.append({"symbol": sym, "isin": isin})
         if out:
             cache_path.write_text(json.dumps(out), encoding="utf-8")
-        return out
+        return out or _stale_cache(cache_path)
     except Exception:
-        return []
+        return _stale_cache(cache_path)
 
 
 def _fetch_bse_all(cache_dir: Path) -> list[dict]:
@@ -201,10 +210,10 @@ def _fetch_bse_all(cache_dir: Path) -> list[dict]:
             timeout=25,
         )
         if r.status_code != 200 or not r.text:
-            return []
+            return _stale_cache(cache_path)
         data = r.json()
         if not isinstance(data, list):
-            return []
+            return _stale_cache(cache_path)
         out: list[dict] = []
         for row in data:
             if not isinstance(row, dict):
@@ -226,9 +235,9 @@ def _fetch_bse_all(cache_dir: Path) -> list[dict]:
             })
         if out:
             cache_path.write_text(json.dumps(out), encoding="utf-8")
-        return out
+        return out or _stale_cache(cache_path)
     except Exception:
-        return []
+        return _stale_cache(cache_path)
 
 
 def get_all_listed(cache_dir: Optional[Path] = None) -> list[str]:
@@ -284,11 +293,18 @@ def get_all_listed(cache_dir: Optional[Path] = None) -> list[str]:
             seen.add(bo)
             tickers.append(bo)
 
-    if not tickers:
-        try:                                      # offline and no store: last good list
-            return json.loads(combined_path.read_text(encoding="utf-8"))
+    nse_ok = bool(nse_rows) or bool(traded_nse)
+    bse_ok = bool(bse_rows) or bool(traded_bse)
+    if not tickers or not (nse_ok and bse_ok):
+        # One exchange's list is missing entirely: a partial list would drop
+        # (or mislabel as .BO) thousands of stocks, so keep the last good one.
+        try:
+            prev = json.loads(combined_path.read_text(encoding="utf-8"))
+            if prev:
+                return prev
         except Exception:
-            return []
+            pass
+        return tickers
     try:
         combined_path.write_text(json.dumps(tickers), encoding="utf-8")
     except Exception:

@@ -60,10 +60,14 @@ def analyze(
     pb = _g(info, "priceToBook")
     roe = _g(info, "returnOnEquity")
     de = _g(info, "debtToEquity")
+    if de is not None:
+        de = de / 100            # Yahoo reports D/E in percent (35.2 = 0.352×)
     eg = _g(info, "earningsGrowth")
     rg = _g(info, "revenueGrowth")
     pm = _g(info, "profitMargins")
     dy = _g(info, "dividendYield")
+    if dy is not None:
+        dy = dy / 100            # Yahoo reports dividendYield in percent (0.45 = 0.45%)
     mcap = _g(info, "marketCap")
     feps = _g(info, "forwardEps")
     teps = _g(info, "trailingEps")
@@ -155,9 +159,9 @@ def analyze(
             notes.append(f"Revenue declining {rg*100:.0f}%")
 
     if de is not None:
-        # yfinance reports debt/equity as a ratio scaled differently for some tickers;
-        # we treat values > 5 as already in % form and divide.
-        de_norm = de / 100 if de > 5 else de
+        # Already a plain ratio: Yahoo's percent is divided at extraction,
+        # screener.in reports the ratio itself.
+        de_norm = de
         if not score_leverage:
             notes.append(f"D/E {de_norm:.2f} — leverage is structural for {sector}, not scored")
         else:

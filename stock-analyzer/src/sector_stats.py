@@ -31,13 +31,8 @@ def compute_sector_stats(cache_root: Path) -> dict[str, dict[str, dict[str, floa
         return {}
 
     by_sector: dict[str, dict[str, list[float]]] = defaultdict(lambda: defaultdict(list))
-    for f in analysis.glob("*.json"):
-        if f.name.startswith("_"):
-            continue
-        try:
-            d = json.loads(f.read_text(encoding="utf-8"))
-        except Exception:
-            continue
+    from . import batch as batch_mod
+    for d in batch_mod.read_all_results(cache_root):
         sector = d.get("sector") or ""
         if not sector:
             continue
