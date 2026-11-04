@@ -10,6 +10,21 @@ recommendation:
   technical_weight: 0.45
   fundamental_weight: 0.45
   telegram_weight: 0.10
+  # Macro tilt (crude, USD/INR, US yields, dollar, copper, gold, S&P 500, FII
+  # flows) mapped through each stock's sector. Stock macro score is ±1.5 at
+  # most, so 0.25 moves the combined score by at most ±0.375.
+  macro_weight: 0.25
+
+# Macro factors (src/macro.py). Optional: RBI policy direction, which feeds the
+# interest-rate factor alongside the US 10Y yield — cutting | hold | hiking.
+macro:
+  enabled: true
+  # repo_trend: hold
+
+# ALL UNIVERSE = every NSE (main board + SME) and BSE stock with market cap at
+# or above this floor, rebuilt on each "Refresh all".
+universe:
+  min_market_cap_cr: 500
 
 cache:
   dir: data/cache

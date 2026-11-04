@@ -137,6 +137,7 @@
   <div class="scores" style="margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--border);">
     <span class="s">Technical <b>{{ '{:+.2f}'.format(r.technical_score) }}</b></span>
     <span class="s">Fundamental <b>{{ '{:+.2f}'.format(r.fundamental_score) }}</b></span>
+    {% if r.macro_score %}<span class="s" title="{{ r.macro_group or 'Market-wide' }} — crude, rupee, global yields, metals and FII flows">Macro <b>{{ '{:+.2f}'.format(r.macro_score) }}</b>{% if r.macro_group %}<span style="color: var(--muted);"> ({{ r.macro_group }})</span>{% endif %}</span>{% endif %}
     <span class="s">Telegram <b>{{ '{:+.2f}'.format(r.telegram_score) }}</b>{% if r.tg_mentions %}<span style="color: var(--muted);"> ({{ r.tg_mentions }} mentions)</span>{% endif %}</span>
   </div>
 </div>

@@ -64,6 +64,9 @@ def _serialize(ticker: str, sd, tech, fund, rec, tg: Optional[TelegramSignal] = 
         "technical_score": rec.technical_score,
         "fundamental_score": rec.fundamental_score,
         "telegram_score": rec.telegram_score,
+        "macro_score": getattr(rec, "macro_score", 0.0),
+        "macro_group": getattr(rec, "macro_group", None),
+        "macro_drivers": getattr(rec, "macro_drivers", []),
         "trade_target": rec.trade_target,
         "target_bull": rec.target_bull,
         "fair_value": rec.fair_value,
@@ -144,10 +147,11 @@ def _illiquid_short_circuit(ticker: str, hist, tech, cfg: dict,
 
 
 # Bump when analysis logic changes, so every stock is re-analyzed once.
-ANALYSIS_VERSION = "2026-11-01"
+ANALYSIS_VERSION = "2026-11-04"
 
 
-def input_key(history, regime: Optional[dict], cfg: Optional[dict]) -> Optional[str]:
+def input_key(history, regime: Optional[dict], cfg: Optional[dict],
+              macro: Optional[dict] = None) -> Optional[str]:
     """Fingerprint of everything a verdict depends on that can change within a
     day: the latest price bar, the market regime, the recommendation settings,
     and the date (fundamentals caches and earnings proximity roll daily). Two
@@ -161,8 +165,10 @@ def input_key(history, regime: Optional[dict], cfg: Optional[dict]) -> Optional[
         return None
     reg = regime or {}
     rec_cfg = json.dumps((cfg or {}).get("recommendation", {}), sort_keys=True, default=str)
+    from . import macro as macro_mod
     return "|".join([ANALYSIS_VERSION, date.today().isoformat(), last_day, str(last_close),
-                     str(reg.get("state")), str(reg.get("hold_zone")), rec_cfg])
+                     str(reg.get("state")), str(reg.get("hold_zone")), rec_cfg,
+                     macro_mod.fingerprint(macro)])
 
 
 class _NoData:
@@ -216,6 +222,7 @@ def analyze_one(
     prefetched_history=None,
     regime: Optional[dict] = None,
     sector_stats: Optional[dict] = None,
+    macro: Optional[dict] = None,
 ) -> Optional[dict]:
     # Fast liquidity pre-check on the FREE prefetched history. A name below the
     # ₹1cr/day floor is a guaranteed HOLD, so short-circuit before the three
@@ -268,6 +275,8 @@ def analyze_one(
             prior_verdict=prior_verdict,
             prior_score=prior_score,
             sector=sd.sector,
+            macro=macro,
+            industry=sd.industry,
         )
         serialized = _serialize(ticker.upper(), sd, tech, fund, rec, tg_signal)
         serialized["earnings_in_days"] = days_left
@@ -367,6 +376,7 @@ def run_batch(
     max_workers: int = 8,           # retry-pass workers (cfg batch.analysis_workers sizes analysis)
     regime=None,                    # dict, or a Future resolving to one
     skip_unchanged: bool = True,    # skip stocks whose inputs haven't changed
+    macro=None,                     # macro snapshot dict, or a Future resolving to one
 
 ) -> dict:
     """Run batch analysis in parallel. Skips tickers whose cache is fresh.
@@ -473,10 +483,15 @@ def run_batch(
                 regime = regime.result()
             except Exception:
                 regime = None
+        if hasattr(macro, "result"):
+            try:
+                macro = macro.result()
+            except Exception:
+                macro = None
         keep: list[str] = []
         for tk in to_process:
             h = histories.get(tk.upper())
-            key = input_key(h, regime, cfg) if h is not None and not getattr(h, "empty", True) else None
+            key = input_key(h, regime, cfg, macro) if h is not None and not getattr(h, "empty", True) else None
             prev = read_result(tk, cache_root) if key else None
             if key and prev and prev.get("input_key") == key:
                 skipped_unchanged += 1
@@ -555,7 +570,7 @@ def run_batch(
     ctx_lock = threading.Lock()
 
     def _context():
-        nonlocal regime, tg_signals
+        nonlocal regime, tg_signals, macro
         with ctx_lock:
             if not ctx["ready"]:
                 t0 = time.perf_counter()
@@ -569,6 +584,11 @@ def run_batch(
                         tg_signals = tg_signals.result()
                     except Exception:
                         tg_signals = {}
+                if hasattr(macro, "result"):
+                    try:
+                        macro = macro.result()
+                    except Exception:
+                        macro = None
                 prof.add("wait: regime / research signals", time.perf_counter() - t0)
                 ctx["ready"] = True
         return regime, tg_signals
@@ -584,12 +604,13 @@ def run_batch(
             prefetched_history=prefetched,
             regime=reg,
             sector_stats=sector_stats,
+            macro=macro,
         )
         if result:
             _fill_name(result)
             h = histories.get(t.upper())
             if h is not None and not getattr(h, "empty", True):
-                result["input_key"] = input_key(h, reg, cfg)
+                result["input_key"] = input_key(h, reg, cfg, macro)
             write_result(result, cache_root)
             fresh_results[t.upper()] = result
         return t, result
@@ -637,6 +658,14 @@ def run_batch(
     for tk in no_net:
         _submit(tk)                      # no network needed: start now
 
+    try:
+        from . import exchange_prices as _ep_mod
+        _pst = _ep_mod._settings(cfg)
+        nse_trusted = _pst["NSE"] and _ep_mod.is_fresh("NSE")
+        bse_trusted = _pst["BSE"] and _ep_mod.is_fresh("BSE")
+    except Exception:
+        nse_trusted = bse_trusted = False
+    prof.meta.update({"nse_store_trusted": nse_trusted, "bse_store_trusted": bse_trusted})
     if need_net or need_history:
         import yfinance as _yf
         from . import earnings as _earn, screener_in as _screener
@@ -737,7 +766,13 @@ def run_batch(
         for tk in need_net:
             _fundamentals(tk)
         for tk in need_history:
-            _spawn(yex, _history_then_route, tk)
+            if (tk.upper().endswith(".BO") and bse_trusted) or (not tk.upper().endswith(".BO") and nse_trusted):
+                # The exchange's own files list every stock that traded; this
+                # one isn't there, so it has no price data. No Yahoo check.
+                no_history.add(tk.upper())
+                _submit(tk)
+            else:
+                _spawn(yex, _history_then_route, tk)
         _finish()                        # release the guard
         all_done.wait(timeout=PER_CALL_CEILING * max(pf["outstanding"] + pf["done"], 1))
         yex.shutdown(wait=False, cancel_futures=True)
@@ -776,6 +811,7 @@ def run_batch(
                 prefetched_history=prefetched,
                 regime=reg,
                 sector_stats=sector_stats,
+                macro=macro,
             )
             if result:
                 _fill_name(result)

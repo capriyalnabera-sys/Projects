@@ -91,8 +91,11 @@ def get_universe(name: str, cache_dir: Optional[Path] = None) -> list[str]:
         live = load_live_set(cache_dir)
         return live if live else get_all_listed(cache_dir)
     if name in ("alllisted", "allnse", "allbse", "nsebse", "everylisted"):
-        # Every equity listed on NSE + BSE, deduplicated by ISIN (~5,000-5,500).
-        return get_all_listed(cache_dir)
+        # Every NSE + BSE equity (deduplicated by ISIN) with market cap at or
+        # above universe.min_market_cap_cr (default ₹500 cr), as built by the
+        # last Refresh all. Before the first build: the complete listing.
+        cap = load_mcap_universe(cache_dir)
+        return cap["tickers"] if cap and cap.get("tickers") else get_all_listed(cache_dir)
     raise ValueError(f"Unknown universe: {name}")
 
 
@@ -118,6 +121,13 @@ SENSEX_30 = [
 # still surfacing the ~3,000 BSE-exclusive names.
 
 NSE_EQUITY_LIST_URL = "https://archives.nseindia.com/content/equities/EQUITY_L.csv"
+# NSE Emerge (SME platform) listings live in a separate file.
+NSE_SME_LIST_URL = "https://nsearchives.nseindia.com/emerge/corporates/content/SME_EQUITY_L.csv"
+# Main-board series kept: EQ (normal), BE / BZ (trade-for-trade — still listed).
+NSE_MAIN_SERIES = ("EQ", "BE", "BZ")
+NSE_SME_SERIES = ("SM", "ST")
+# A symbol counts as alive if it traded in the price files this recently.
+TRADED_LOOKBACK_DAYS = 60
 BSE_SCRIP_LIST_URL = (
     "https://api.bseindia.com/BseIndiaAPI/api/ListofScripData/w"
     "?Group=&Scripcode=&industry=&segment=Equity&status=Active"
@@ -127,8 +137,17 @@ ALL_LISTED_TTL_SECONDS = 7 * 86400  # 7 days
 
 
 def _fetch_nse_all(cache_dir: Path) -> list[dict]:
-    """All NSE-listed equities (EQ + BE series). Returns [{symbol, isin}]."""
-    cache_path = cache_dir / "_nse_equity_all.json"
+    """All NSE main-board equities (EQ / BE / BZ). Returns [{symbol, isin}]."""
+    return _fetch_nse_csv(cache_dir, NSE_EQUITY_LIST_URL, "_nse_equity_all.json", NSE_MAIN_SERIES)
+
+
+def _fetch_nse_sme(cache_dir: Path) -> list[dict]:
+    """All NSE Emerge (SME) equities. Returns [{symbol, isin}]."""
+    return _fetch_nse_csv(cache_dir, NSE_SME_LIST_URL, "_nse_sme_all.json", NSE_SME_SERIES)
+
+
+def _fetch_nse_csv(cache_dir: Path, url: str, cache_name: str, series_ok: tuple) -> list[dict]:
+    cache_path = cache_dir / cache_name
     if cache_path.exists() and (time.time() - cache_path.stat().st_mtime < ALL_LISTED_TTL_SECONDS):
         try:
             return json.loads(cache_path.read_text(encoding="utf-8"))
@@ -136,7 +155,7 @@ def _fetch_nse_all(cache_dir: Path) -> list[dict]:
             pass
     try:
         r = requests.get(
-            NSE_EQUITY_LIST_URL,
+            url,
             headers={"User-Agent": _BROWSER_UA, "Accept": "text/csv,*/*"},
             timeout=20,
         )
@@ -152,7 +171,7 @@ def _fetch_nse_all(cache_dir: Path) -> list[dict]:
             sym = parts[0].strip().strip('"')
             series = parts[2].strip().upper()
             isin = parts[6].strip()
-            if not sym or series not in ("EQ", "BE"):
+            if not sym or series not in series_ok:
                 continue
             out.append({"symbol": sym, "isin": isin})
         if out:
@@ -213,55 +232,67 @@ def _fetch_bse_all(cache_dir: Path) -> list[dict]:
 
 
 def get_all_listed(cache_dir: Optional[Path] = None) -> list[str]:
-    """Deduplicated NSE + BSE universe. NSE symbols first; BSE-only names
-    (by ISIN) appended as ``<SCRIP_ID>.BO``. Cached as a flat ticker list."""
+    """Every listed Indian equity: NSE main board + NSE SME + BSE, plus any
+    symbol that traded in the exchanges' daily price files recently (catches
+    listings the scrip lists miss). NSE symbols first; BSE-only names (by
+    ISIN) appended as ``<SCRIP_ID>.BO``. Saved as a flat ticker list."""
     if cache_dir is None:
         cache_dir = Path("data/cache/universe")
     cache_dir.mkdir(parents=True, exist_ok=True)
-
     combined_path = cache_dir / "_all_listed.json"
-    if combined_path.exists() and (time.time() - combined_path.stat().st_mtime < ALL_LISTED_TTL_SECONDS):
-        try:
-            return json.loads(combined_path.read_text(encoding="utf-8"))
-        except Exception:
-            pass
 
-    nse = _fetch_nse_all(cache_dir)
-    bse = _fetch_bse_all(cache_dir)
+    nse_rows = _fetch_nse_all(cache_dir) + _fetch_nse_sme(cache_dir)
+    bse_rows = _fetch_bse_all(cache_dir)
+    try:
+        from . import exchange_prices as ep
+        traded_nse = ep.recent_symbols("NSE", TRADED_LOOKBACK_DAYS)
+        traded_bse = ep.recent_symbols("BSE", TRADED_LOOKBACK_DAYS)
+        isin_nse, isin_bse = ep.isins("NSE"), ep.isins("BSE")
+    except Exception:
+        traded_nse, traded_bse, isin_nse, isin_bse = set(), set(), {}, {}
 
     tickers: list[str] = []
-    seen_symbols: set[str] = set()
+    seen: set[str] = set()
     nse_isins: set[str] = set()
-
-    # NSE first — preferred line for any dual-listed company.
-    for row in nse:
+    for row in nse_rows:
         sym = row["symbol"].upper()
-        if sym in seen_symbols:
-            continue
-        seen_symbols.add(sym)
+        if sym not in seen:
+            seen.add(sym)
+            tickers.append(sym)
         if row.get("isin"):
             nse_isins.add(row["isin"])
-        tickers.append(sym)
+    for sym in sorted(traded_nse):              # traded but missing from the lists
+        if sym not in seen:
+            seen.add(sym)
+            tickers.append(sym)
+        if isin_nse.get(sym):
+            nse_isins.add(isin_nse[sym])
 
-    # BSE-only: ISIN not present on NSE.
-    for row in bse:
-        isin = row.get("isin")
-        if isin and isin in nse_isins:
-            continue  # dual-listed → already covered by the NSE line
-        sym = row["scrip_id"]
-        # Self-describing ".BO" ticker — passes through to_yf_symbol unchanged,
-        # and never collides with a plain NSE symbol string.
-        bo_ticker = f"{sym}.BO"
-        if bo_ticker in seen_symbols:
+    nse_syms = set(seen)
+    bse_candidates = [(r["scrip_id"], r.get("isin")) for r in bse_rows] + \
+                     [(s, isin_bse.get(s)) for s in sorted(traded_bse)]
+    for sym, isin in bse_candidates:
+        sym = (sym or "").strip().upper()
+        if not sym:
             continue
-        seen_symbols.add(bo_ticker)
-        tickers.append(bo_ticker)
+        if isin and isin in nse_isins:
+            continue                              # dual-listed: covered by NSE
+        if not isin and sym in nse_syms:
+            continue                              # same symbol, no ISIN: assume dual
+        bo = f"{sym}.BO"
+        if bo not in seen:
+            seen.add(bo)
+            tickers.append(bo)
 
-    if tickers:
-        try:
-            combined_path.write_text(json.dumps(tickers), encoding="utf-8")
+    if not tickers:
+        try:                                      # offline and no store: last good list
+            return json.loads(combined_path.read_text(encoding="utf-8"))
         except Exception:
-            pass
+            return []
+    try:
+        combined_path.write_text(json.dumps(tickers), encoding="utf-8")
+    except Exception:
+        pass
     return tickers
 
 
@@ -275,6 +306,39 @@ def load_all_listed_cached(cache_dir: Optional[Path] = None) -> list[str]:
         return json.loads((cache_dir / "_all_listed.json").read_text(encoding="utf-8"))
     except Exception:
         return []
+
+
+# --------------------------------------------------------------------------
+# Market-cap universe — every listed stock at or above the market-cap floor,
+# rebuilt on each Refresh all (see mcap.py). Behind the ALL UNIVERSE tab.
+# --------------------------------------------------------------------------
+
+def _mcap_universe_path(cache_dir: Optional[Path]) -> Path:
+    return (cache_dir or Path("data/cache/universe")) / "_mcap_universe.json"
+
+
+def load_mcap_universe(cache_dir: Optional[Path] = None) -> Optional[dict]:
+    """{"tickers": [...], "stats": {...}, "updated_at": iso} or None."""
+    p = _mcap_universe_path(cache_dir)
+    try:
+        d = json.loads(p.read_text(encoding="utf-8")) if p.exists() else None
+        return d if isinstance(d, dict) else None
+    except Exception:
+        return None
+
+
+def save_mcap_universe(tickers: list[str], stats: dict, cache_dir: Optional[Path] = None) -> None:
+    p = _mcap_universe_path(cache_dir)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        tmp = p.with_suffix(".tmp")
+        tmp.write_text(json.dumps({
+            "tickers": tickers, "stats": stats,
+            "updated_at": __import__("datetime").datetime.now().isoformat(timespec="seconds"),
+        }), encoding="utf-8")
+        tmp.replace(p)
+    except Exception:
+        pass
 
 
 # --------------------------------------------------------------------------

@@ -224,8 +224,11 @@ def _resolve_display_tickers(name: str, cache_root: Path) -> list[str]:
     has run (the dashboard then prompts the user to run one)."""
     key = name.lower().replace("_", "")
     if key in _BIG_UNIVERSES:
-        # ALL UNIVERSE: every listed name — the page shows each one that has
-        # an analysis, including thinly traded names the live set leaves out.
+        # ALL UNIVERSE: every listed stock above the market-cap floor (built
+        # by Refresh all); the complete listing until that first build.
+        cap = universe.load_mcap_universe(cache_root / "universe")
+        if cap and cap.get("tickers"):
+            return cap["tickers"]
         return universe.load_all_listed_cached(cache_root / "universe")
     if key in ("liveset", "live", "nsebselive", "tradeable"):
         return universe.load_live_set(cache_root / "universe") or []
@@ -248,8 +251,8 @@ def _build_universes_meta(active_name: str, cache_root: Path) -> list[dict]:
             try:
                 ut = universe.get_universe(u_name, cache_dir=cache_root / "universe")
                 if u_name.lower().replace("_", "") in _BIG_UNIVERSES:
-                    live = universe.load_live_set(cache_root / "universe") or []
-                    cached = len(live)
+                    # File-existence checks only (no JSON parsing) — cheap.
+                    cached = sum(1 for t in ut if batch.cache_path(t, cache_root).exists())
                 else:
                     cached = sum(1 for t in ut if batch.read_result(t, cache_root) is not None)
                 meta.append({"name": u_name, "label": _UNIVERSE_LABELS.get(u_name, u_name.upper()),
@@ -370,7 +373,11 @@ def _classify_pros_cons(rationale: list[str]) -> tuple[list[str], list[str]]:
     pros, cons = [], []
     for item in rationale:
         low = item.lower()
-        if any(p in low for p in POS):
+        if item.startswith("[M] Macro +"):
+            pros.append(item)
+        elif item.startswith("[M] Macro -"):
+            cons.append(item)
+        elif any(p in low for p in POS):
             pros.append(item)
         elif any(n in low for n in NEG):
             cons.append(item)
@@ -424,15 +431,9 @@ def index():
     from . import regime as regime_mod, fii_dii as fii_mod
     market_regime = _memo_get("regime", 120, regime_mod.get_regime)
     fii_signal = _memo_get("fii", 300, fii_mod.fetch)
-    # For the big universe, show the TRUE listed total in the header even though
-    # we only display/refresh the live set. Cheap len() over the cached list.
-    if name.lower().replace("_", "") in _BIG_UNIVERSES:
-        try:
-            universe_total = len(universe.get_universe(name, cache_dir=cache_root / "universe"))
-        except Exception:
-            universe_total = len(tickers)
-    else:
-        universe_total = len(tickers)
+    # Display list == universe list (for ALL UNIVERSE: the market-cap list,
+    # read from disk — page loads never trigger the exchange downloads).
+    universe_total = len(tickers)
     return render_template(
         "home.html",
         rows=rows, status=status, universes=universes_meta,
@@ -443,6 +444,8 @@ def index():
         cached_count=len(rows), universe_total=universe_total,
         no_data_count=(len(batch.load_no_data(cache_root))
                        if name.lower().replace("_", "") in _BIG_UNIVERSES else 0),
+        cap_stats=((universe.load_mcap_universe(cache_root / "universe") or {}).get("stats")
+                   if name.lower().replace("_", "") in _BIG_UNIVERSES else None),
         price_sources=_price_sources(),
         last_profile=_last_profile(cache_root),
         verdict_counts=verdict_counts, total_verdict=total_with_verdict,
@@ -678,8 +681,12 @@ def market():
     agg = market_pulse.aggregate_universe(rows)
     heat = market_pulse.heatmap_rows(rows)
     universes_meta = _build_universes_meta(name, cache_root)
+    from . import macro as macro_mod
+    cfg = _load_config()
+    macro_snap = _memo_get("macro", 600, lambda: macro_mod.snapshot(cfg))
     return render_template(
         "market.html",
+        macro=macro_snap, macro_sectors=macro_mod.sector_table(macro_snap),
         indices=indices, agg=agg, heat=heat,
         universe_name=name, universes=universes_meta,
         cached_count=len(rows), universe_total=len(tickers),
@@ -1348,6 +1355,8 @@ def _refresh_worker(name: str, ttl_minutes: int, with_telegram: bool = True,
     # re-sweep ~5,500 names (incl. thousands of illiquid/no-data shells) every
     # time. A "full sweep" re-runs the entire universe and rebuilds the live set.
     is_big = name.lower().replace("_", "") in ("alllisted", "allnse", "allbse", "nsebse", "everylisted")
+    if is_big and full_sweep:
+        tickers = _build_cap_universe(cache_root, cfg) or tickers
     full_universe = list(tickers)
     if is_big and full_sweep and ttl_minutes <= 0:
         ttl_minutes = 6 * 60
@@ -1361,8 +1370,10 @@ def _refresh_worker(name: str, ttl_minutes: int, with_telegram: bool = True,
     # they run alongside the batch's history and fundamentals stages; the
     # batch collects them just before analysis starts.
     from concurrent.futures import ThreadPoolExecutor as _SideTPE
-    _side = _SideTPE(max_workers=2)
+    _side = _SideTPE(max_workers=3)
     regime = _side.submit(regime_mod.get_regime)
+    from . import macro as macro_mod
+    macro_f = _side.submit(macro_mod.snapshot, cfg)
 
     def _scan_research() -> dict:
         tg_signals: dict[str, TelegramSignal] = {}
@@ -1397,7 +1408,8 @@ def _refresh_worker(name: str, ttl_minutes: int, with_telegram: bool = True,
 
     tg_signals = _side.submit(_cached_research_scan, cache_root, cfg, tickers, _scan_research)
     result = batch.run_batch(tickers, cfg, cache_root, tg_signals=tg_signals,
-                             ttl_minutes=ttl_minutes, regime=regime, skip_unchanged=not force)
+                             ttl_minutes=ttl_minutes, regime=regime, skip_unchanged=not force,
+                             macro=macro_f)
     _side.shutdown(wait=False)
     _after_refresh(result)
 
@@ -1475,30 +1487,88 @@ def _recompute_calibration_async():
         pass
 
 
+def _build_cap_universe(cache_root: Path, cfg: dict) -> list[str]:
+    """Rebuild the ALL UNIVERSE list: every NSE (main + SME) and BSE stock,
+    deduplicated by ISIN, with market cap ≥ universe.min_market_cap_cr
+    (default ₹500 cr). Market cap = shares outstanding (Yahoo, cached 30 days)
+    × latest exchange close. NIFTY 50 / SENSEX members are always kept."""
+    from . import exchange_prices as ep, mcap
+    from datetime import datetime
+    started_at = datetime.now().isoformat(timespec="seconds")
+
+    def status(msg: str, done: int = 0, total: int = 0) -> None:
+        batch.write_status(cache_root, {"running": True, "total": total, "done": done,
+                                        "ok": 0, "errors": 0, "current": msg,
+                                        "started_at": started_at})
+
+    status("updating exchange price files")
+    try:
+        ep.ensure_updated(cfg)
+    except Exception:
+        pass
+    status("loading the full NSE + BSE listing")
+    listed = universe.get_all_listed(cache_root / "universe")
+    closes = ep.last_closes()
+    if not listed or not closes:
+        return []
+    no_data = batch.load_no_data(cache_root)
+    # Only stocks that traded recently can be priced; the rest are left out.
+    candidates = [t for t in listed if t.upper() in closes and t.upper() not in no_data]
+    reg = mcap.update(candidates, closes, cache_root,
+                      progress=lambda d, n: status(f"checking market caps {d}/{n}", d, n))
+    always = set()
+    for u in ("nifty50", "sensex"):
+        try:
+            always |= {t.upper() for t in universe.get_universe(u, cache_dir=cache_root / "universe")}
+        except Exception:
+            pass
+    keep, stats = mcap.eligible(candidates, reg, closes, mcap.min_cap_cr(cfg), always=always)
+    stats["listed"] = len(listed)
+    stats["not_traded"] = len(listed) - len(candidates)
+    if keep:
+        universe.save_mcap_universe(keep, stats, cache_root / "universe")
+        with _MEMO_LOCK:
+            _MEMO.pop("universes_meta", None)
+    return keep
+
+
 def _refresh_all_worker(ttl_minutes: int, with_telegram: bool, force: bool = False):
-    """Refresh every unique ticker across every configured universe.
-    Telegram scan runs once for the combined set, then a single batch."""
+    """Refresh every listed Indian stock (NSE main board + SME + BSE) with
+    market cap ≥ the configured floor (default ₹500 cr) in one
+    batch. Thin names cost only local CPU (no network), unchanged names are
+    skipped, and names absent from the exchange files are no-data without a
+    Yahoo check — so covering the whole listing stays cheap."""
     cache_root = _cache_root()
     cfg = _load_config()
-    all_universes = ("nifty50", "sensex", "liveset")
     seen: set[str] = set()
     tickers: list[str] = []
-    for u in all_universes:
+    for u in ("nifty50", "sensex"):
         try:
             for t in universe.get_universe(u, cache_dir=cache_root / "universe"):
-                tk = t.upper()
-                if tk not in seen:
-                    seen.add(tk)
+                if t.upper() not in seen:
+                    seen.add(t.upper())
                     tickers.append(t)
         except Exception:
             continue
+    try:
+        capped = _build_cap_universe(cache_root, cfg)
+    except Exception:
+        capped = []
+    if not capped:   # first run offline etc. — fall back to the saved list
+        capped = universe.get_universe("alllisted", cache_dir=cache_root / "universe")
+    for t in capped:
+        if t.upper() not in seen:
+            seen.add(t.upper())
+            tickers.append(t)
     from . import regime as regime_mod
     # Market regime and the Telegram scan don't depend on price data, so
     # they run alongside the batch's history and fundamentals stages; the
     # batch collects them just before analysis starts.
     from concurrent.futures import ThreadPoolExecutor as _SideTPE
-    _side = _SideTPE(max_workers=2)
+    _side = _SideTPE(max_workers=3)
     regime = _side.submit(regime_mod.get_regime)
+    from . import macro as macro_mod
+    macro_f = _side.submit(macro_mod.snapshot, cfg)
 
     def _scan_research() -> dict:
         tg_signals: dict[str, TelegramSignal] = {}
@@ -1540,8 +1610,20 @@ def _refresh_all_worker(ttl_minutes: int, with_telegram: bool, force: bool = Fal
 
     tg_signals = _side.submit(_cached_research_scan, cache_root, cfg, tickers, _scan_research)
     result = batch.run_batch(tickers, cfg, cache_root, tg_signals=tg_signals,
-                             ttl_minutes=ttl_minutes, regime=regime, skip_unchanged=not force)
+                             ttl_minutes=ttl_minutes, regime=regime, skip_unchanged=not force,
+                             macro=macro_f)
     _side.shutdown(wait=False)
+
+    # The whole listing was just analyzed: refresh the live set (liquid names
+    # with data) behind the NSE+BSE tab, so newly liquid stocks show up there.
+    if result and result.get("ok"):
+        try:
+            live = batch.compute_live_set(tickers, cache_root,
+                                          min_turnover_cr=batch._liquidity_floor(cfg))
+            if live:
+                universe.save_live_set(live, cache_root / "universe")
+        except Exception:
+            pass
 
     _after_refresh(result)
 
@@ -1626,6 +1708,14 @@ def api_refresh_all():
 @app.route("/api/status")
 def api_status():
     return jsonify(batch.read_status(_cache_root()))
+
+
+@app.route("/api/macro")
+def api_macro():
+    """Macro factors and their sector implications (see src/macro.py)."""
+    from . import macro as macro_mod
+    snap = macro_mod.snapshot(_load_config(), force=request.args.get("force") == "1")
+    return jsonify({**snap, "sectors": macro_mod.sector_table(snap)})
 
 
 @app.route("/api/profile")

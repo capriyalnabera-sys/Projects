@@ -264,7 +264,9 @@ def main():
         root = tmp / "cache"
         batch.run_batch(["RELIANCE", "SPLITCO", "ABCLTD.BO", "NEWCO", "UNKNOWN"], cfg, root)
         assert sorted(asked_yahoo) == ["NEWCO", "UNKNOWN"], asked_yahoo
-        assert seen["RELIANCE"] and seen["ABCLTD.BO"] and seen["NEWCO"] is None
+        # NEWCO/UNKNOWN: absent from fresh exchange files and from Yahoo's bulk
+        # answer → no data, without a per-stock Yahoo re-check.
+        assert seen["RELIANCE"] and seen["ABCLTD.BO"] and "NEWCO" not in seen, seen
         rel_row = batch.read_result("RELIANCE", root)
         assert rel_row["name"] == "RELIANCE INDUSTRIES LTD", rel_row["name"]
         assert batch.read_result("ABCLTD.BO", root)["name"] == "ABC LIMITED"

@@ -38,6 +38,9 @@ class Recommendation:
     track_record: Optional[dict] = None         # {n, hit_rate, avg_return, horizon_days, guidance}
     sector_track_record: Optional[dict] = None  # {confidence, note, n, hit_rate, avg_return}
     calibration_applied: bool = False           # True iff the learned BUY floor demoted this verdict
+    macro_score: float = 0.0                    # sector macro tilt (-1.5..+1.5) before weighting
+    macro_group: Optional[str] = None           # macro sensitivity group the stock was mapped to
+    macro_drivers: list = field(default_factory=list)
 
 
 def recommend(
@@ -51,6 +54,8 @@ def recommend(
     prior_verdict: Optional[str] = None,
     prior_score: Optional[float] = None,
     sector: Optional[str] = None,
+    macro: Optional[dict] = None,
+    industry: Optional[str] = None,
 ) -> Recommendation:
     w_t = weights.get("technical_weight", 0.45)
     w_f = weights.get("fundamental_weight", 0.45)
@@ -60,7 +65,18 @@ def recommend(
     if tg and tg.mentions_7d > 0:
         tg_score = max(-3.0, min(3.0, tg.avg_sentiment * (1 + min(tg.mentions_7d / 5, 1.0))))
 
-    combined_raw = tech.score * w_t + fund.score * w_f + tg_score * w_g
+    # ---- Macro tilt: crude, rupee, global yields, metals, flows → by sector --
+    macro_impact = {"score": 0.0, "group": None, "drivers": [], "note": None}
+    if macro:
+        try:
+            from . import macro as macro_mod
+            macro_impact = macro_mod.stock_impact(macro, sector, industry)
+        except Exception:
+            pass
+    w_m = weights.get("macro_weight", 0.25)
+    macro_score = macro_impact["score"]
+
+    combined_raw = tech.score * w_t + fund.score * w_f + tg_score * w_g + macro_score * w_m
 
     # ---- Score EMA smoothing (G) -------------------------------------------
     # Blend with prior batch's score to dampen yfinance/data-source noise.
@@ -171,6 +187,8 @@ def recommend(
         rationale.append(
             f"[G] {tg.mentions_7d} Telegram mentions in last 7d, avg sentiment {tg.avg_sentiment:+.2f}"
         )
+    if macro_impact.get("note"):
+        rationale.append(f"[M] {macro_impact['note']} (adds {macro_score * w_m:+.2f} to score)")
 
     # Surface why a verdict was suppressed so the user can tell signal from noise.
     if illiquid:
@@ -303,6 +321,9 @@ def recommend(
         track_record=track_record,
         sector_track_record=sector_track_record,
         calibration_applied=calibration_applied,
+        macro_score=macro_score,
+        macro_group=macro_impact.get("group"),
+        macro_drivers=macro_impact.get("drivers") or [],
     )
 
 

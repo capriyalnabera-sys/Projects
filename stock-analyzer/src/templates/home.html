@@ -6,6 +6,7 @@
     <h2 style="margin: 0;">Today's recommendations</h2>
     <div class="sub" style="margin: 4px 0 0;">
       Universe: <strong>{{ universe_name | upper }}</strong> · {{ cached_count }}/{{ universe_total }} analyzed
+      {% if cap_stats %}· <span title="Every NSE (main board + SME) and BSE stock with market cap ≥ ₹{{ '{:,.0f}'.format(cap_stats.min_cr) }} cr. Market cap = shares outstanding × latest exchange close. {{ cap_stats.below_min }} listed stocks are below the floor, {{ cap_stats.unknown }} have no share count yet, {{ cap_stats.not_traded or 0 }} didn't trade recently.">market cap ≥ ₹{{ '{:,.0f}'.format(cap_stats.min_cr) }} cr ({{ cap_stats.eligible }} of {{ cap_stats.listed }} listed)</span>{% endif %}
       {% if no_data_count %}· <span title="Suspended, delisted or dormant listings — rechecked weekly">{{ no_data_count }} have no price data</span>{% endif %}
       {% if rows %} · avg score <strong class="{% if avg_score > 0 %}pos{% elif avg_score < 0 %}neg{% endif %}">{{ '{:+.2f}'.format(avg_score) }}</strong>{% endif %}
       {% if status.running %}· <span style="color: var(--yellow);">refreshing {{ status.done }}/{{ status.total }}</span>
@@ -27,7 +28,7 @@
         {{ u.label }} <span style="opacity: 0.7;">({{ u.cached }})</span></a>
     {% endfor %}
     <button onclick="refresh()" class="secondary" style="margin-left: 8px;" title="Refresh only the currently-selected universe"><i data-lucide="refresh-cw"></i>Refresh</button>
-    <button onclick="refreshAll()" class="secondary" title="Refresh NIFTY 50 + SENSEX + the full NSE+BSE live set (~1,900 tradeable names)"><i data-lucide="refresh-ccw-dot"></i>Refresh all</button>
+    <button onclick="refreshAll()" class="secondary" title="Refresh every Indian stock with market cap ≥ ₹500 cr (configurable) — NSE main board, NSE SME and BSE. Unchanged stocks are skipped."><i data-lucide="refresh-ccw-dot"></i>Refresh all</button>
     <button onclick="fullSweep()" class="secondary" title="Analyze every NSE+BSE listed name. Names with no price data are skipped for a week, and running it again the same day only fills in stocks that were missed."><i data-lucide="globe"></i>Full sweep</button>
     <a href="/screener" class="nav-link" title="Opens the full NSE+BSE tradeable set"><i data-lucide="filter"></i>Full screener</a>
   </div>

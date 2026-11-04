@@ -75,6 +75,7 @@ RETRY_COOLDOWN_MIN = 60          # after giving up, wait this long before retryi
 SERIES_RANK = {"EQ": 0, "BE": 1, "BZ": 2, "SM": 3, "ST": 4, "SZ": 5}
 
 _lock = threading.Lock()
+_meta_lock = threading.Lock()
 _progress: dict = {"msg": ""}
 
 
@@ -110,21 +111,21 @@ def parse_bhav(content: bytes) -> pd.DataFrame:
             "sym": col("TckrSymb"), "series": col("SctySrs"),
             "open": col("OpnPric"), "high": col("HghPric"), "low": col("LwPric"),
             "close": col("ClsPric"), "prev_close": col("PrvsClsgPric"),
-            "volume": col("TtlTradgVol"), "name": col("FinInstrmNm"),
+            "volume": col("TtlTradgVol"), "name": col("FinInstrmNm"), "isin": col("ISIN"),
         })
     elif "CLOSE_PRICE" in cols:                  # NSE sec_bhavdata_full
         out = pd.DataFrame({
             "sym": col("SYMBOL"), "series": col("SERIES"),
             "open": col("OPEN_PRICE"), "high": col("HIGH_PRICE"), "low": col("LOW_PRICE"),
             "close": col("CLOSE_PRICE"), "prev_close": col("PREV_CLOSE"),
-            "volume": col("TTL_TRD_QNTY"), "name": None,
+            "volume": col("TTL_TRD_QNTY"), "name": None, "isin": None,
         })
     elif "TOTTRDQTY" in cols:                    # legacy NSE cm bhavcopy
         out = pd.DataFrame({
             "sym": col("SYMBOL"), "series": col("SERIES"),
             "open": col("OPEN"), "high": col("HIGH"), "low": col("LOW"),
             "close": col("CLOSE"), "prev_close": col("PREVCLOSE"),
-            "volume": col("TOTTRDQTY"), "name": None,
+            "volume": col("TOTTRDQTY"), "name": None, "isin": col("ISIN"),
         })
     else:
         raise ValueError(f"unrecognized price-file layout: {list(df.columns)[:8]}")
@@ -248,16 +249,83 @@ def _save_day(exch: str, day: str, df: pd.DataFrame) -> None:
     with gzip.open(tmp, "wt", encoding="utf-8", newline="") as f:
         df[cols].to_csv(f, index=False)
     tmp.replace(d / f"{day}.csv.gz")
-    names = df.dropna(subset=["name"])
-    if not names.empty:
-        p = d / "_names.json"
-        cur = _read_json(p)
-        cur.update({s: str(n).strip() for s, n in zip(names["sym"], names["name"]) if str(n).strip()})
-        p.write_text(json.dumps(cur), encoding="utf-8")
+    # Several download threads save days at once: the shared name / ISIN maps
+    # are read-modify-write, so serialize them (unlocked, updates were lost).
+    with _meta_lock:
+        for col, fname in (("name", "_names.json"), ("isin", "_isin.json")):
+            if col not in df.columns:
+                continue
+            vals = df.dropna(subset=[col])
+            if vals.empty:
+                continue
+            p = d / fname
+            cur = _read_json(p)
+            cur.update({s: str(v).strip() for s, v in zip(vals["sym"], vals[col])
+                        if str(v).strip() and str(v).strip().lower() != "nan"})
+            tmp = d / f".{fname}.tmp"
+            tmp.write_text(json.dumps(cur), encoding="utf-8")
+            tmp.replace(p)
 
 
 def names(exch: str) -> dict[str, str]:
     return _read_json(STORE_DIR / exch / "_names.json")
+
+
+def isins(exch: str) -> dict[str, str]:
+    """{SYMBOL: ISIN} seen in this exchange's price files."""
+    return _read_json(STORE_DIR / exch / "_isin.json")
+
+
+def is_fresh(exch: str) -> bool:
+    """True when the store has files and the latest is within STALE_AFTER_DAYS —
+    i.e. it can be trusted to list every stock that traded."""
+    days = stored_days(exch)
+    if not days:
+        return False
+    return (datetime.now(IST).date() - date.fromisoformat(days[-1])).days <= STALE_AFTER_DAYS
+
+
+def recent_symbols(exch: str, lookback_days: int = 60) -> set[str]:
+    """Every symbol that traded on this exchange in the last lookback_days —
+    the most complete answer to "what is listed and alive"."""
+    cutoff = (datetime.now(IST).date() - timedelta(days=lookback_days)).isoformat()
+    days = [d for d in stored_days(exch) if d >= cutoff]
+    if not days:
+        return set()
+    try:
+        panel = pd.read_pickle(_panel_path(exch))
+        if set(days) <= set(panel.attrs.get("days", [])):
+            return set(panel.loc[panel["date"] >= cutoff, "sym"].astype(str).unique())
+    except Exception:
+        pass
+    out: set[str] = set()
+    for day in days:
+        try:
+            out.update(pd.read_csv(STORE_DIR / exch / f"{day}.csv.gz", usecols=["sym"],
+                                   dtype={"sym": str})["sym"].dropna())
+        except Exception:
+            continue
+    return out
+
+
+def last_closes(lookback_days: int = 15) -> dict[str, float]:
+    """{TICKER: latest close} from the newest stored files — NSE symbols as-is,
+    BSE symbols as SYMBOL.BO. Reads at most a couple of weeks of files."""
+    out: dict[str, float] = {}
+    cutoff = (datetime.now(IST).date() - timedelta(days=lookback_days)).isoformat()
+    for exch, suffix in (("NSE", ""), ("BSE", ".BO")):
+        days = [d for d in stored_days(exch) if d >= cutoff]
+        for day in days:   # oldest → newest, so later days overwrite
+            try:
+                df = pd.read_csv(STORE_DIR / exch / f"{day}.csv.gz", usecols=["sym", "close"],
+                                 dtype={"sym": str})
+            except Exception:
+                continue
+            df = df.dropna()
+            for s, c in zip(df["sym"], df["close"]):
+                if c > 0:
+                    out[f"{s.upper()}{suffix}"] = float(c)
+    return out
 
 
 def summary() -> list[dict]:

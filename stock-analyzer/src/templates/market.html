@@ -36,6 +36,56 @@
   {% endfor %}
 </div>
 
+<!-- Macro backdrop ----------------------------------------------------- -->
+{% if macro and macro.available %}
+<div class="card" style="padding: 16px 20px; margin-bottom: 18px;">
+  <h2 style="margin: 0 0 4px; display: flex; align-items: center; gap: 6px;"><i data-lucide="globe"></i>Macro backdrop{% if macro.stale %} <span style="font-size: 11px; color: var(--muted); font-weight: 400;">(last good snapshot — live fetch failed)</span>{% endif %}</h2>
+  <div style="font-size: 12px; color: var(--muted); margin-bottom: 12px;">
+    Feeds each stock's recommendation through its sector's sensitivity (small weight — tilts, never decides).
+    Updated {{ macro.computed_at }}.
+  </div>
+  <div class="macro-grid">
+    {% for k, f in macro.factors.items() if not f.derived %}
+    <div class="macro-f">
+      <div class="lbl">{{ f.label }}</div>
+      <div class="val">{% if f.unit == 'cr' %}₹{{ '{:+,.0f}'.format(f.last) }} cr{% elif f.unit == 'abs' %}{{ '{:.2f}'.format(f.last) }}%{% else %}{{ '{:,.2f}'.format(f.last) }}{% endif %}</div>
+      <div class="chg">
+        {% if f.change_1m is not none %}1m {{ '{:+.2f}'.format(f.change_1m) }}{{ ' pts' if f.unit == 'abs' else '%' }} · 3m {{ '{:+.2f}'.format(f.change_3m) }}{{ ' pts' if f.unit == 'abs' else '%' }}{% else %}DII ₹{{ '{:+,.0f}'.format(f.dii_net_cr or 0) }} cr{% endif %}
+      </div>
+      <div class="trend t-{{ f.trend.replace(' ', '-') }}">{{ f.trend }}</div>
+    </div>
+    {% endfor %}
+  </div>
+  {% if macro_sectors %}
+  <h3 style="margin: 16px 0 8px; font-size: 13px;">What it means by sector</h3>
+  <div class="macro-sectors">
+    {% for s in macro_sectors %}
+    <div class="ms">
+      <span class="g">{{ s.group }}</span>
+      <span class="{% if s.score > 0.1 %}pos{% elif s.score < -0.1 %}neg{% else %}neutral{% endif %}" style="font-weight: 600;">{{ '{:+.2f}'.format(s.score) }}</span>
+      <span class="d">{% for d in s.drivers %}{{ d.label }} {{ 'tailwind' if d.contribution > 0 else 'headwind' }}{% if not loop.last %} · {% endif %}{% endfor %}</span>
+    </div>
+    {% endfor %}
+  </div>
+  {% endif %}
+  <div style="font-size: 11px; color: var(--muted); margin-top: 10px;">
+    Sources: {{ macro.sources.prices }} · {{ macro.sources.fii }}{% if macro.factors.rates and macro.factors.rates.repo_trend %} · RBI stance (config): {{ macro.factors.rates.repo_trend }}{% endif %}
+  </div>
+</div>
+<style>
+  .macro-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; }
+  .macro-f { border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; background: var(--panel-soft); }
+  .macro-f .lbl { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .5px; font-weight: 600; }
+  .macro-f .val { font-size: 18px; font-weight: 700; margin-top: 4px; }
+  .macro-f .chg { font-size: 12px; color: var(--muted); margin-top: 2px; }
+  .macro-f .trend { font-size: 11px; margin-top: 4px; font-weight: 600; }
+  .t-up, .t-sharply-up { color: var(--green); } .t-down, .t-sharply-down { color: var(--red); } .t-flat { color: var(--muted); }
+  .macro-sectors { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 4px 18px; font-size: 13px; }
+  .ms { display: grid; grid-template-columns: 1fr 52px; gap: 2px 8px; padding: 6px 0; border-bottom: 1px solid var(--border); }
+  .ms .d { grid-column: 1 / -1; font-size: 11px; color: var(--muted); }
+</style>
+{% endif %}
+
 <!-- Breadth + 52w extremes --------------------------------------------- -->
 <div class="grid" style="grid-template-columns: 2fr 1fr 1fr; gap: 14px; margin-bottom: 18px;">
   <div class="card" style="padding: 16px 20px;">
