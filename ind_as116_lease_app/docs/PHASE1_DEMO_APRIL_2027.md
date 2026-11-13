@@ -4,7 +4,7 @@ Demo database: `sample_data/demo_lease_accounting.sqlite`. Journals are in
 `sample_data/outputs/Journals_April_2027.xlsx`, and lease-wise workings are in
 `sample_data/outputs/Lease_Workings_Lxxxx.xlsx`.
 
-Settings: monthly time basis, effective-annual IBR. Each deposit is discounted at the IBR of its
+Settings: monthly time basis; monthly rate = **IBR ÷ 12** (for example, 9% → 0.75% per month). Each deposit is discounted at the IBR of its
 lease (no default deposit rate is set).
 
 ## Demonstration leases
@@ -24,34 +24,34 @@ lease (no default deposit rate is set).
 
 | Lease | Initial liability | Initial ROU | Opening liability | Interest | Payment | Closing liability | Opening ROU | Depreciation | Closing ROU | Deposit (carrying) |
 |---|---|---|---|---|---|---|---|---|---|---|
-| L0001 | 89,84,134.36 | 89,84,134.36 | 79,82,508.08 | 56,737.91 | 1,10,250.00 | 79,28,995.99 | 72,39,410.64 | 86,183.46 | 71,53,227.18 | 3,30,662.73 |
-| L0002 | 1,33,04,563.65 | 1,33,04,563.65 | 97,22,226.56 | 67,828.28 | 7,87,500.00 | 90,02,554.84 | 88,25,714.81 | 2,26,300.38 | 85,99,414.43 | 5,62,806.84 |
-| L0003 | 1,68,90,139.67 | 1,75,55,137.48 | 1,66,98,721.09 | 1,30,339.02 | 1,90,000.00 | 1,66,39,060.11 | 1,49,87,934.58 | 1,44,090.55 | 1,48,43,844.03 | 4,82,601.65 |
-| L0004 | 86,88,443.96 | 86,88,443.96 | 77,51,031.98 | 54,956.07 | 1,26,000.00 | 76,79,988.05 | 72,70,847.08 | 1,06,053.91 | 72,11,665.88 | 2,94,617.38 |
-| L0005 | 81,90,663.67 | 81,90,663.67 | 56,75,148.63 | 78,295.70 | 1,65,000.00 | 1,01,38,082.14 | 51,03,353.94 | 1,34,069.33 | 95,18,922.42 | 7,00,136.15 |
-| L0006 | 66,16,295.61 | 66,16,295.61 | 47,26,323.69 | – | – | – | 40,08,173.84 | – | – | – |
-| L0007 | 19,47,762.70 | 20,72,762.70 | – | 14,412.72 | – | 19,62,175.42 | – | 58,741.36 | 20,55,947.48 | 1,39,095.55 |
-| L0008 | 2,17,21,109.84 | 2,17,21,109.84 | 1,77,32,224.75 | 75,250.83 | 1,98,450.00 | 1,05,16,135.82 | 1,60,97,300.05 | 1,60,973.00 | 94,97,407.17 | 7,07,148.70 |
+| L0001 | 88,53,822.28 | 88,53,822.28 | 78,91,337.38 | 58,358.15 | 1,10,250.00 | 78,39,445.53 | 71,44,693.85 | 85,055.87 | 70,59,637.98 | 3,22,787.26 |
+| L0002 | 1,31,87,958.90 | 1,31,87,958.90 | 96,67,567.29 | 70,300.53 | 7,87,500.00 | 89,50,367.82 | 87,55,856.91 | 2,24,509.15 | 85,31,347.76 | 5,55,954.95 |
+| L0003 | 1,65,45,608.35 | 1,72,28,034.84 | 1,64,15,076.93 | 1,33,881.83 | 1,90,000.00 | 1,63,58,958.76 | 1,47,08,666.30 | 1,41,405.73 | 1,45,67,260.57 | 4,65,474.40 |
+| L0004 | 85,89,210.55 | 85,89,210.55 | 76,77,768.03 | 56,638.26 | 1,26,000.00 | 76,08,406.29 | 71,93,233.51 | 1,04,950.10 | 71,36,606.85 | 2,88,856.53 |
+| L0005 | 81,22,646.64 | 81,22,646.64 | 56,46,899.18 | 80,788.89 | 1,65,000.00 | 1,00,24,037.39 | 50,68,607.00 | 1,32,360.50 | 93,97,595.82 | 6,93,059.10 |
+| L0006 | 65,48,225.46 | 65,48,225.46 | 46,97,068.59 | – | – | – | 39,69,617.21 | – | – | – |
+| L0007 | 19,36,452.91 | 20,61,452.91 | – | 14,926.82 | – | 19,51,379.73 | – | 58,469.23 | 20,46,423.06 | 1,37,613.27 |
+| L0008 | 2,14,73,026.31 | 2,14,73,026.31 | 1,75,86,133.06 | 77,649.23 | 1,98,450.00 | 1,04,30,879.20 | 1,59,37,052.28 | 1,59,370.52 | 94,02,860.98 | 6,95,136.67 |
 
 The "Initial ROU" column excludes the security-deposit discount, which is added to the ROU as a
 separate addition on the deposit date.
 
 ## Events in April 2027
 
-* **L0004 additional deposit:** cash ₹1,20,000; fair value ₹73,127.29 (PV of a refund on 31-Dec-2032
-  at 9%); discount ₹46,872.71 added to the ROU. Depreciation is recomputed from April.
-* **L0005 modification:** liability ₹56,75,148.63 → ₹1,02,24,786.45 (PV of 72 revised payments at
-  9.75%); ROU increased by the same ₹45,49,637.81; no gain or loss.
-* **L0006 full termination:** liability ₹47,26,323.69 − ROU ₹40,08,173.84 − payment ₹1,80,000 =
-  **gain ₹5,38,149.85**. Deposit refund: cash ₹2,70,000 against a carrying amount of ₹1,93,503.65, so
-  ₹76,496.35 goes to P&L (refund before the original expected date).
-* **L0007 new lease:** liability ₹19,47,762.70; ROU ₹20,72,762.70 (+ IDC ₹50,000 + restoration
-  ₹1,00,000 − incentive ₹25,000). Deposit discount ₹41,926.14 added to the ROU.
+* **L0004 additional deposit:** cash ₹1,20,000; fair value ₹71,676.56 (PV of a refund on 31-Dec-2032
+  at 9% ÷ 12); discount ₹48,323.44 added to the ROU. Depreciation is recomputed from April.
+* **L0005 modification:** liability ₹56,46,899.18 → ₹1,01,08,248.50 (PV of 72 revised payments at
+  9.75% ÷ 12); ROU increased by the same ₹44,61,349.32; no gain or loss.
+* **L0006 full termination:** liability ₹46,97,068.59 − ROU ₹39,69,617.21 − payment ₹1,80,000 =
+  **gain ₹5,47,451.38**. Deposit refund: cash ₹2,70,000 against a carrying amount of ₹1,91,053.70, so
+  ₹78,946.30 goes to P&L (refund before the original expected date).
+* **L0007 new lease:** liability ₹19,36,452.91; ROU ₹20,61,452.91 (+ IDC ₹50,000 + restoration
+  ₹1,00,000 − incentive ₹25,000). Deposit discount ₹43,439.38 added to the ROU.
 * **L0008 partial termination (40%):** 40% of liability and ROU derecognised; gain = 40% × (L − ROU) −
-  ₹50,000 = **₹6,03,969.88**. Rent falls to 60% (₹1,98,450). The remeasurement difference is ₹0.14,
+  ₹50,000 = **₹6,09,632.31**. Rent falls to 60% (₹1,98,450). The remeasurement difference is ₹0.14,
   which comes only from paise rounding of the future escalated rents. Deposit refund ₹7,20,000
-  against a carrying amount of ₹4,71,319.63.
+  against a carrying amount of ₹4,63,309.04.
 
 ## Totals
 
-88 journal lines, 36 vouchers; total debit = total credit = **₹2,82,14,075.40**.
+88 journal lines, 36 vouchers; total debit = total credit = **₹2,79,79,993.90**.

@@ -26,14 +26,14 @@ TOL = Dec("0.05")
 
 # ----------------------------------------------------------------------------- reference maths
 def mrate(annual_pct):
-    """Monthly rate equivalent to an effective annual IBR."""
-    return (Dec(1) + Dec(annual_pct) / 100) ** (Dec(1) / 12) - 1
+    """Monthly rate = IBR / 12 (Finance-approved convention)."""
+    return Dec(annual_pct) / 100 / 12
 
 
 def pv(flows, annual_pct):
-    """flows = [(t_months, amount)] ; discount with annual compounding exponent t/12."""
-    r = Dec(1) + Dec(annual_pct) / 100
-    return sum((Dec(a) / r ** (Dec(t) / 12) for t, a in flows), Dec(0))
+    """flows = [(t_months, amount)] ; discount monthly at IBR/12: amount / (1 + IBR/12)^t."""
+    r = Dec(1) + Dec(annual_pct) / 1200
+    return sum((Dec(a) / r ** Dec(t) for t, a in flows), Dec(0))
 
 
 def rollforward(L0, flows, annual_pct, months, timing):
@@ -306,25 +306,25 @@ def s15_19_deposits():
           DepositMovementInput("R1", date(2028, 4, 1), "Refund", Dec(100000)),
           DepositMovementInput("R2", date(2030, 4, 1), "Refund", Dec(620000))]
     res = calculate_lease(lease(end_date=date(2030, 3, 31), deposits=sd))
-    fv1 = Dec(600000) / Dec("1.09") ** 5
+    fv1 = Dec(600000) / Dec("1.0075") ** 60
     inp = "SD 6,00,000 interest-free at commencement, 9% market rate, refund 1-Apr-2030"
-    record(15, "Security deposit at commencement", "Fair value = 6,00,000 / 1.09^5", inp, fv1,
+    record(15, "Security deposit at commencement", "Fair value = 6,00,000 / (1+0.09/12)^60", inp, fv1,
            next(e for e in res.events if e.ref == "SD1").amounts["fair_value"])
     record(15, "Security deposit at commencement", "Discount added to ROU = 6,00,000 - FV", inp, 600000 - q2(fv1),
            next(e for e in res.events if e.ref == "SD1").amounts["rou"])
     record(19, "Interest-free deposit", "Month 1 unwinding = FV x monthly rate", inp, q2(fv1) * mrate(9),
            res.months[0].values["sd_unwinding"], Dec("0.05"))
-    fv2 = Dec(120000) / Dec("1.09") ** 3
+    fv2 = Dec(120000) / Dec("1.0075") ** 36
     ev2 = next(e for e in res.events if e.ref == "SD2")
     inp2 = "Additional deposit 1,20,000 on 1-Apr-2027 (36 months to refund), 9%"
-    record(16, "Additional deposit during lease", "Fair value = 1,20,000 / 1.09^3", inp2, fv2, ev2.amounts["fair_value"])
+    record(16, "Additional deposit during lease", "Fair value = 1,20,000 / (1+0.09/12)^36", inp2, fv2, ev2.amounts["fair_value"])
     record(16, "Additional deposit during lease", "Discount added to ROU (not a modification)", inp2, 120000 - q2(fv2),
            ev2.amounts["rou"])
     rou_open = res.months[24].values["rou_open"]
     record(16, "Additional deposit during lease", "Depreciation after = (ROU + discount) / 36", inp2,
            (rou_open + 120000 - q2(fv2)) / 36, res.months[24].values["rou_depreciation"], Dec("0.10"))
-    # carrying of tranche 1 at 1-Apr-2028 = 600000 / 1.09^2 ; refund 100000 FIFO from tranche 1
-    carry1 = Dec(600000) / Dec("1.09") ** 2
+    # carrying of tranche 1 at 1-Apr-2028 = 600000 / (1+0.09/12)^24 ; refund 100000 FIFO from tranche 1
+    carry1 = Dec(600000) / Dec("1.0075") ** 24
     share = carry1 * 100000 / 600000
     ev3 = next(e for e in res.events if e.ref == "R1")
     inp3 = "Partial refund 1,00,000 on 1-Apr-2028 (2 years early), FIFO from original deposit"

@@ -9,10 +9,10 @@ independent of the desktop screens.
 | Setting | Default | Alternative | Effect |
 |---|---|---|---|
 | Time basis | `monthly`: whole lease months from commencement plus the fraction of the current lease month (days ÷ days in that lease month) | `actual_365`: days ÷ 365 (same as Excel XNPV) | Full months always count as exactly 1.0, so monthly interest and depreciation are even |
-| IBR conversion | `effective`: monthly rate = (1 + IBR)^(1/12) − 1 | `nominal`: IBR ÷ 12 | The IBR is treated as an effective annual rate |
+| IBR conversion | `nominal`: monthly rate = IBR ÷ 12 (**approved by Finance**) | `effective`: (1 + IBR)^(1/12) − 1 | Interest compounds monthly at IBR ÷ 12 (e.g. 9% → 0.75% per month) |
 
-**Judgement for Finance approval:** the defaults are monthly / effective. Changing them changes
-every calculation (posted journals already stored are not altered).
+The defaults are monthly / nominal (IBR ÷ 12). Changing them in Settings changes every calculation
+(approved / posted journals already stored are not altered).
 
 ## 2. Lease payments and rent escalation
 
@@ -33,7 +33,7 @@ every calculation (posted journals already stored are not altered).
 
 ## 3. Initial measurement (Ind AS 116.24–26)
 
-* **Lease liability** = Σ payment ÷ (1 + monthly rate)^t, where t = months from commencement to the
+* **Lease liability** = Σ payment ÷ (1 + IBR/12)^t, where t = months from commencement to the
   payment date. A payment due on the commencement date (advance) has t = 0 and discount factor 1; it
   is included in the present value and settled the same day by the rent journal. The net result is
   the same as excluding it from the liability and adding it to the ROU.
@@ -85,8 +85,8 @@ every calculation (posted journals already stored are not altered).
 
 ## 7. Security deposits (Ind AS 109 / Ind AS 116)
 
-* **Refundable, interest-free:** fair value = refund ÷ (1 + rate)^(t/12) at the deposit discount
-  rate. The rate is taken from the movement record, then the Settings default, then the lease IBR.
+* **Refundable, interest-free:** fair value = refund ÷ (1 + rate/12)^t (t in months) at the deposit
+  discount rate. The rate is taken from the movement record, then the Settings default, then the lease IBR.
   The expected refund date defaults to the lease end date. The difference between cash and fair
   value is a prepaid lease payment added to the **ROU** and depreciated over the remaining term (or
   held as *Prepaid lease rentals* until commencement). The deposit is unwound to the refund amount
@@ -119,7 +119,7 @@ balance before it is saved.
 
 ## 9. Points for Finance to confirm (judgements)
 
-1. Time basis (monthly) and effective-annual IBR conversion.
+1. Time basis (monthly). IBR conversion is settled: IBR ÷ 12.
 2. Treatment of the deposit discount as a prepaid lease payment in the ROU. The alternative is a
    separate prepaid asset.
 3. The deposit discount rate. Use Settings for a single market rate, or enter one per deposit.

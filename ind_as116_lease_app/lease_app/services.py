@@ -30,7 +30,7 @@ class LeaseService:
     # ------------------------------------------------------------------ inputs
     def basis(self) -> TimeBasis:
         s = self.db.settings()
-        return TimeBasis(s.get("time_basis", "monthly"), s.get("rate_basis", "effective"))
+        return TimeBasis(s.get("time_basis", "monthly"), s.get("rate_basis", "nominal"))
 
     def build_input(self, lease: dict) -> LeaseInput:
         lid = lease["lease_id"]

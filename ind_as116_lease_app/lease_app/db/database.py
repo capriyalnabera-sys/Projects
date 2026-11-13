@@ -20,7 +20,7 @@ DEFAULT_SETTINGS = {
     "currency": "INR",
     "fy_start_month": "4",
     "time_basis": "monthly",            # monthly | actual_365
-    "rate_basis": "effective",          # effective | nominal
+    "rate_basis": "nominal",            # nominal (IBR/12) | effective
     "depreciation_method": "Straight-line over lease term",
     "default_deposit_rate": "",         # blank -> lease IBR
     "auto_backup": "Yes",

@@ -11,8 +11,8 @@ date).  Two conventions are supported (Settings > Accounting configuration):
 
 Monthly interest rate:
 
-* ``effective`` - (1 + IBR) ^ (1/12) - 1  (IBR is an effective annual rate)
-* ``nominal``   - IBR / 12
+* ``nominal``   - IBR / 12  (default, approved by Finance)
+* ``effective`` - (1 + IBR) ^ (1/12) - 1  (IBR treated as an effective annual rate)
 """
 from __future__ import annotations
 
@@ -77,7 +77,7 @@ def month_range(first: date, last: date):
 @dataclass(frozen=True)
 class TimeBasis:
     time_basis: str = "monthly"      # monthly | actual_365
-    rate_basis: str = "effective"    # effective | nominal
+    rate_basis: str = "nominal"      # nominal (IBR/12, default) | effective
 
     def monthly_rate(self, annual_rate_pct: Decimal) -> Decimal:
         r = D(annual_rate_pct) / 100
