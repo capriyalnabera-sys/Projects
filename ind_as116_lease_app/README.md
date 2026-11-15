@@ -44,9 +44,11 @@ build_exe.bat
 ```
 
 Run `run_from_source.bat` once first. The build script then installs the build tools, **runs the
-accounting tests (and stops if any fail)**, then builds `dist\IndAS116LeaseApp\IndAS116LeaseApp.exe` with
-PyInstaller. Copy the whole `dist\IndAS116LeaseApp` folder to any Windows PC; Python is not needed
-there.
+accounting tests (and stops if any fail)**, then builds a single self-contained `dist\IndAS116LeaseApp.exe` with
+PyInstaller. Copy that one file to any Windows PC; Python is not needed there.
+
+A ready-built `.exe` is also produced automatically on GitHub (Actions → *Build Ind AS 116 Lease App*)
+every time the app changes on the `My-Projects` branch.
 
 ## Folder structure
 
