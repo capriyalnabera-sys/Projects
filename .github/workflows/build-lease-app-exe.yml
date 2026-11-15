@@ -32,61 +32,95 @@ jobs:
       - name: Run accounting tests
         run: python -m pytest -q tests
 
-      - name: Build a single self-contained .exe with PyInstaller
+      # one-folder build (not --onefile): self-extracting single .exe files are often
+      # flagged by browser / antivirus heuristics
+      - name: Build the application folder with PyInstaller
         run: >
-          pyinstaller --noconfirm --clean --onefile --windowed --name IndAS116LeaseApp
+          pyinstaller --noconfirm --clean --windowed --name IndAS116LeaseApp
           --icon assets/app_icon.ico --add-data "assets;assets"
           --exclude-module PySide6.QtWebEngineCore --exclude-module PySide6.QtWebEngineWidgets
           --exclude-module tkinter
           main.py
 
-      - name: Launch the built .exe (self-test on Windows)
+      - name: Self-test the built application
         timeout-minutes: 5
         run: |
-          $p = Start-Process -FilePath "dist\IndAS116LeaseApp.exe" -ArgumentList "--self-test" -Wait -PassThru
-          $log = Join-Path $env:LOCALAPPDATA "IndAS116LeaseApp\self_test.log"
-          if (Test-Path $log) { Get-Content $log }
-          $err = Join-Path $env:LOCALAPPDATA "IndAS116LeaseApp\startup_error.log"
-          if (Test-Path $err) { Get-Content $err }
-          Write-Host "Exit code: $($p.ExitCode)"
-          if ($p.ExitCode -ne 0) { exit 1 }
-
-      - name: Launch the .exe alone from an empty folder (as when started from inside a ZIP)
-        timeout-minutes: 5
-        run: |
-          $dir = Join-Path $env:RUNNER_TEMP "lone_exe"
-          New-Item -ItemType Directory -Force $dir | Out-Null
-          Copy-Item dist\IndAS116LeaseApp.exe $dir
-          Remove-Item -Force -ErrorAction SilentlyContinue (Join-Path $env:LOCALAPPDATA "IndAS116LeaseApp\self_test.log")
-          $p = Start-Process -FilePath (Join-Path $dir "IndAS116LeaseApp.exe") -ArgumentList "--self-test" -WorkingDirectory $env:RUNNER_TEMP -Wait -PassThru
+          $p = Start-Process -FilePath "dist\IndAS116LeaseApp\IndAS116LeaseApp.exe" -ArgumentList "--self-test" -Wait -PassThru
           Get-Content (Join-Path $env:LOCALAPPDATA "IndAS116LeaseApp\self_test.log")
           Write-Host "Exit code: $($p.ExitCode)"
           if ($p.ExitCode -ne 0) { exit 1 }
 
-      - name: Package the application folder
+      - name: Build the installer (Inno Setup)
         run: |
-          $pkg = "package\IndAS116LeaseApp"
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path $iscc)) {
+            choco install innosetup -y --no-progress
+          }
+          & $iscc "/DAppVersion=1.0.${{ github.run_number }}" installer\IndAS116LeaseApp.iss
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+
+      - name: Install silently and self-test the installed application
+        timeout-minutes: 5
+        run: |
+          $setup = Start-Process -FilePath "installer_output\IndAS116LeaseApp-Setup.exe" -ArgumentList "/VERYSILENT","/SUPPRESSMSGBOXES","/NORESTART","/TASKS=desktopicon" -Wait -PassThru
+          Write-Host "Installer exit code: $($setup.ExitCode)"
+          if ($setup.ExitCode -ne 0) { exit 1 }
+          $exe = Join-Path $env:LOCALAPPDATA "Programs\IndAS116LeaseApp\IndAS116LeaseApp.exe"
+          if (-not (Test-Path $exe)) { Write-Host "Installed exe not found"; exit 1 }
+          Remove-Item -Force -ErrorAction SilentlyContinue (Join-Path $env:LOCALAPPDATA "IndAS116LeaseApp\self_test.log")
+          $p = Start-Process -FilePath $exe -ArgumentList "--self-test" -Wait -PassThru
+          Get-Content (Join-Path $env:LOCALAPPDATA "IndAS116LeaseApp\self_test.log")
+          Write-Host "Exit code: $($p.ExitCode)"
+          if ($p.ExitCode -ne 0) { exit 1 }
+
+      - name: Microsoft Defender scan (information)
+        continue-on-error: true
+        run: |
+          $mp = "$env:ProgramFiles\Windows Defender\MpCmdRun.exe"
+          if (Test-Path $mp) {
+            & $mp -Scan -ScanType 3 -File "$PWD\installer_output\IndAS116LeaseApp-Setup.exe" -DisableRemediation
+            & $mp -Scan -ScanType 3 -File "$PWD\dist\IndAS116LeaseApp" -DisableRemediation
+          }
+
+      - name: Prepare downloads
+        run: |
+          $readme = @"
+          Ind AS 116 Lease Accounting - Windows desktop application
+          ==========================================================
+          INSTALLER (recommended)
+            1. Double-click IndAS116LeaseApp-Setup.exe and follow the steps
+               (no administrator rights needed).
+            2. Start it from the desktop shortcut or the Start menu.
+          PORTABLE (no installation)
+            1. Right-click the ZIP > Extract All, e.g. to C:\LeaseApp.
+            2. Open the extracted IndAS116LeaseApp folder and double-click IndAS116LeaseApp.exe.
+               Do not run it from inside the ZIP.
+          If Windows SmartScreen warns about an unknown publisher: More info > Run anyway.
+          Demo data: Settings > Load sample (demo) data, then Monthly Accounting > April 2027.
+          Lease data is stored in %LOCALAPPDATA%\IndAS116LeaseApp (kept on upgrade / uninstall).
+          "@
+          New-Item -ItemType Directory -Force package-setup | Out-Null
+          Copy-Item installer_output\IndAS116LeaseApp-Setup.exe package-setup
+          $readme | Set-Content package-setup\READ_ME_FIRST.txt
+
+          $pkg = "package-portable\IndAS116LeaseApp"
           New-Item -ItemType Directory -Force $pkg | Out-Null
-          Copy-Item dist\IndAS116LeaseApp.exe $pkg
+          Copy-Item -Recurse dist\IndAS116LeaseApp\* $pkg
           Copy-Item -Recurse templates "$pkg\Excel_Templates"
           Copy-Item -Recurse sample_data "$pkg\Sample_Data"
           New-Item -ItemType Directory -Force "$pkg\Documents" | Out-Null
-          Copy-Item docs\USER_MANUAL.md, docs\ACCOUNTING_METHOD.md, docs\PHASE1_DEMO_APRIL_2027.md, docs\Accounting_Test_Results.xlsx "$pkg\Documents"
-          @"
-          Ind AS 116 Lease Accounting - Windows desktop application
-          ==========================================================
-          1. Right-click the downloaded ZIP > Extract All, e.g. to C:\LeaseApp.
-          2. Double-click IndAS116LeaseApp.exe (single file - no Python or internet needed).
-             The first start takes 5-10 seconds while Windows unpacks it.
-          3. If Windows SmartScreen warns about an unknown publisher: More info > Run anyway.
-          4. Load the demo leases: Settings > Load sample (demo) data.
-             Then Monthly Accounting > April 2027 > Generate monthly entries.
-          Data is stored in %LOCALAPPDATA%\IndAS116LeaseApp (backups in the 'backups' sub-folder).
-          "@ | Set-Content "$pkg\READ_ME_FIRST.txt"
+          Copy-Item docs\*.md, docs\Accounting_Test_Results.xlsx "$pkg\Documents"
+          $readme | Set-Content "$pkg\READ_ME_FIRST.txt"
 
-      # uploaded as a folder: GitHub zips it once, so the download is a single ZIP (no ZIP inside a ZIP)
+      # uploaded as folders: GitHub zips each once (no ZIP inside a ZIP)
       - uses: actions/upload-artifact@v4
         with:
-          name: IndAS116LeaseApp-Windows
-          path: ind_as116_lease_app/package/
+          name: IndAS116LeaseApp-Setup
+          path: ind_as116_lease_app/package-setup/
+          retention-days: 90
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: IndAS116LeaseApp-Portable
+          path: ind_as116_lease_app/package-portable/
           retention-days: 90

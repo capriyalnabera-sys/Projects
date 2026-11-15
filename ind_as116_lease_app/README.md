@@ -44,11 +44,14 @@ build_exe.bat
 ```
 
 Run `run_from_source.bat` once first. The build script then installs the build tools, **runs the
-accounting tests (and stops if any fail)**, then builds a single self-contained `dist\IndAS116LeaseApp.exe` with
-PyInstaller. Copy that one file to any Windows PC; Python is not needed there.
+accounting tests (and stops if any fail)**, then builds `dist\IndAS116LeaseApp\` with PyInstaller. Copy that folder to any Windows PC; Python
+is not needed there. Compiling `installer\IndAS116LeaseApp.iss` with Inno Setup 6 gives
+`IndAS116LeaseApp-Setup.exe`.
 
-A ready-built `.exe` is also produced automatically on GitHub (Actions → *Build Ind AS 116 Lease App*)
-every time the app changes on the `My-Projects` branch.
+GitHub builds both downloads automatically (Actions → *Build Ind AS 116 Lease App*) every time the app
+changes on the `My-Projects` branch: **IndAS116LeaseApp-Setup** (installer) and
+**IndAS116LeaseApp-Portable** (folder, no installation). Each build installs the app on a clean
+Windows machine and self-tests it before publishing.
 
 ### Change the app icon
 

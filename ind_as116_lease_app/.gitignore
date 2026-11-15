@@ -7,3 +7,6 @@ dist/
 .pytest_cache/
 sample_data/backups/
 *_ERRORS.xlsx
+installer_output/
+package/
+package-*/

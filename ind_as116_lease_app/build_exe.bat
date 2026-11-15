@@ -15,11 +15,12 @@ exit /b 1
 if errorlevel 1 goto fail
 "%VPY%" -m pytest -q tests
 if errorlevel 1 goto testfail
-"%VPY%" -m PyInstaller --noconfirm --clean --onefile --windowed --name IndAS116LeaseApp --icon assets\app_icon.ico --add-data "assets;assets" --exclude-module PySide6.QtWebEngineCore --exclude-module PySide6.QtWebEngineWidgets --exclude-module tkinter main.py
+"%VPY%" -m PyInstaller --noconfirm --clean --windowed --name IndAS116LeaseApp --icon assets\app_icon.ico --add-data "assets;assets" --exclude-module PySide6.QtWebEngineCore --exclude-module PySide6.QtWebEngineWidgets --exclude-module tkinter main.py
 if errorlevel 1 goto fail
 echo.
-echo Build complete: dist\IndAS116LeaseApp.exe
-echo Copy dist\IndAS116LeaseApp.exe to any Windows PC - no Python needed there.
+echo Build complete: dist\IndAS116LeaseApp\IndAS116LeaseApp.exe
+echo Copy the whole dist\IndAS116LeaseApp folder to any Windows PC. For an installer, compile
+echo installer\IndAS116LeaseApp.iss with Inno Setup 6.
 pause
 exit /b 0
 :testfail
