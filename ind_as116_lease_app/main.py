@@ -59,6 +59,9 @@ def run():
     parser = argparse.ArgumentParser(description="Ind AS 116 Lease Accounting")
     parser.add_argument("--db", help="Path to the SQLite database file")
     parser.add_argument("--demo", action="store_true", help="Load demonstration leases if the database is empty")
+    parser.add_argument("--self-test", action="store_true",
+                        help="Start with a temporary demo database, generate April 2027 journals, open every screen, "
+                             "write self_test.log and exit (used to verify the built .exe)")
     args, qt_args = parser.parse_known_args()
 
     try:
@@ -74,7 +77,12 @@ def run():
 
     app = QApplication([sys.argv[0]] + qt_args)
     app.setApplicationName("Ind AS 116 Lease Accounting")
-    db_path = Path(args.db) if args.db else app_data_dir() / "lease_accounting.sqlite"
+    if args.self_test:
+        import tempfile
+        db_path = Path(tempfile.mkdtemp()) / "self_test.sqlite"
+        args.demo = True
+    else:
+        db_path = Path(args.db) if args.db else app_data_dir() / "lease_accounting.sqlite"
     db = Database(db_path)
     try:
         db.auto_backup_if_due()
@@ -87,11 +95,41 @@ def run():
     sys.excepthook = _excepthook
     win = MainWindow(svc)
     win.show()
+    if args.self_test:
+        return self_test(app, win, svc)
     if not svc.repo.lease_ids():
         QMessageBox.information(win, "Welcome",
                                 "The database is empty.\n\nAdd leases in 'Lease Master' (or import the Excel template), "
                                 "or load the demonstration leases from 'Settings > Load sample (demo) data'.")
     return app.exec()
+
+
+def self_test(app, win, svc) -> int:
+    """Exercise the engine and every screen; result written to self_test.log (exit code 0 = pass)."""
+    from datetime import date
+    from lease_app.ui.main_window import SECTIONS
+    lines_out = []
+    try:
+        lines = svc.generate_month(date(2027, 4, 1))
+        dr = sum(l.debit for l in lines)
+        cr = sum(l.credit for l in lines)
+        lines_out.append(f"April 2027 journals: {len(lines)} lines, debit {dr}, credit {cr}")
+        if dr != cr or not lines:
+            raise RuntimeError("journals not balanced")
+        for name, _ in SECTIONS:
+            win.goto(name)
+            app.processEvents()
+            lines_out.append(f"screen ok: {name}")
+        lines_out.append("SELF-TEST PASSED")
+        code = 0
+    except Exception:
+        lines_out.append(traceback.format_exc())
+        lines_out.append("SELF-TEST FAILED")
+        code = 1
+    (log_dir() / "self_test.log").write_text("\n".join(lines_out) + "\n", encoding="utf-8")
+    print("\n".join(lines_out))
+    win.close()
+    return code
 
 
 def main():

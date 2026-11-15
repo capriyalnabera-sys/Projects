@@ -1,0 +1,75 @@
+name: Build Ind AS 116 Lease App (Windows .exe)
+
+on:
+  push:
+    branches: [My-Projects]
+    paths:
+      - "ind_as116_lease_app/**"
+      - ".github/workflows/build-lease-app-exe.yml"
+  workflow_dispatch:
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    timeout-minutes: 40
+    defaults:
+      run:
+        working-directory: ind_as116_lease_app
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          architecture: x64
+
+      - name: Install packages
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt -r requirements-dev.txt
+
+      - name: Run accounting tests
+        run: python -m pytest -q tests
+
+      - name: Build the .exe with PyInstaller
+        run: >
+          pyinstaller --noconfirm --clean --windowed --name IndAS116LeaseApp
+          --add-data "templates;templates" --add-data "docs;docs"
+          --exclude-module PySide6.QtWebEngineCore --exclude-module PySide6.QtWebEngineWidgets
+          --exclude-module tkinter
+          main.py
+
+      - name: Launch the built .exe (self-test on Windows)
+        timeout-minutes: 5
+        run: |
+          $p = Start-Process -FilePath "dist\IndAS116LeaseApp\IndAS116LeaseApp.exe" -ArgumentList "--self-test" -Wait -PassThru
+          $log = Join-Path $env:LOCALAPPDATA "IndAS116LeaseApp\self_test.log"
+          if (Test-Path $log) { Get-Content $log }
+          $err = Join-Path $env:LOCALAPPDATA "IndAS116LeaseApp\startup_error.log"
+          if (Test-Path $err) { Get-Content $err }
+          Write-Host "Exit code: $($p.ExitCode)"
+          if ($p.ExitCode -ne 0) { exit 1 }
+
+      - name: Package the application folder
+        run: |
+          Copy-Item -Recurse templates dist\IndAS116LeaseApp\Excel_Templates
+          Copy-Item -Recurse sample_data dist\IndAS116LeaseApp\Sample_Data
+          Copy-Item docs\USER_MANUAL.md, docs\ACCOUNTING_METHOD.md, docs\PHASE1_DEMO_APRIL_2027.md dist\IndAS116LeaseApp\
+          @"
+          Ind AS 116 Lease Accounting - Windows desktop application
+          ==========================================================
+          1. Extract this ZIP to a folder, e.g. C:\LeaseApp  (do not run it from inside the ZIP).
+          2. Double-click IndAS116LeaseApp.exe. No Python or internet needed.
+          3. If Windows SmartScreen warns about an unknown publisher: More info > Run anyway.
+          4. Load the demo leases: Settings > Load sample (demo) data.
+             Then Monthly Accounting > April 2027 > Generate monthly entries.
+          Data is stored in %LOCALAPPDATA%\IndAS116LeaseApp (backups in the 'backups' sub-folder).
+          "@ | Set-Content dist\IndAS116LeaseApp\READ_ME_FIRST.txt
+          Compress-Archive -Path dist\IndAS116LeaseApp -DestinationPath IndAS116LeaseApp-Windows.zip
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: IndAS116LeaseApp-Windows
+          path: ind_as116_lease_app/IndAS116LeaseApp-Windows.zip
+          retention-days: 90
