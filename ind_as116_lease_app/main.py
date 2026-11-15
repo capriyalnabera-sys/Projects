@@ -77,6 +77,8 @@ def run():
 
     app = QApplication([sys.argv[0]] + qt_args)
     app.setApplicationName("Ind AS 116 Lease Accounting")
+    from lease_app.ui.theme import apply_light_theme
+    apply_light_theme(app)
     # icon: bundled inside the .exe (sys._MEIPASS) or next to main.py when run from source
     from PySide6.QtGui import QIcon
     base = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent))
