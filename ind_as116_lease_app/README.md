@@ -15,21 +15,26 @@ calculations have been validated.
 | 4 | Dashboard, Ind AS 116 disclosures, PDF reports | Pending |
 | 5 | Full test pack, Windows installer packaging | Pending (`build_exe.bat` already works) |
 
-## Run it
+## Run it (Windows)
 
-On Windows, with Python 3.10+ installed:
+1. **Install Python once:** download Python 3.12 (64-bit) from https://www.python.org/downloads/windows/
+   and tick **"Add python.exe to PATH"** in the installer.
+2. **Copy the `ind_as116_lease_app` folder** to a simple location, for example `C:\LeaseApp`.
+3. **Double-click `run_from_source.bat`.** On the first run it creates its own environment and downloads
+   the required packages (internet needed once, 2–5 minutes). After that it starts offline in seconds.
 
-```bat
-run_from_source.bat --demo
-```
+The launcher checks each step and keeps the window open with a plain-language message if anything
+fails (Python missing, wrong version, proxy blocking downloads). If the application itself fails to
+start, the details are saved to `%LOCALAPPDATA%\IndAS116LeaseApp\startup_error.log`.
 
-`--demo` loads the 8 demonstration leases into an empty database. Then go to **Monthly Accounting**,
+To load the 8 demonstration leases into an empty database, use **Settings → Load sample (demo) data**,
+or start from a command prompt with `run_from_source.bat --demo`. Then go to **Monthly Accounting**,
 select **April 2027**, and click **Generate monthly entries**.
 
 To open the prepared demo database:
 
 ```bat
-python main.py --db sample_data\demo_lease_accounting.sqlite
+run_from_source.bat --db sample_data\demo_lease_accounting.sqlite
 ```
 
 ### Build the Windows .exe
@@ -38,8 +43,8 @@ python main.py --db sample_data\demo_lease_accounting.sqlite
 build_exe.bat
 ```
 
-The script creates a virtual environment, installs the requirements, **runs the accounting tests
-(and stops if any fail)**, then builds `dist\IndAS116LeaseApp\IndAS116LeaseApp.exe` with
+Run `run_from_source.bat` once first. The build script then installs the build tools, **runs the
+accounting tests (and stops if any fail)**, then builds `dist\IndAS116LeaseApp\IndAS116LeaseApp.exe` with
 PyInstaller. Copy the whole `dist\IndAS116LeaseApp` folder to any Windows PC; Python is not needed
 there.
 

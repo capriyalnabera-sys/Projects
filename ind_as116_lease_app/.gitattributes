@@ -1,0 +1,2 @@
+# keep Windows (CRLF) line endings exactly as stored, also in GitHub ZIP downloads
+*.bat -text
