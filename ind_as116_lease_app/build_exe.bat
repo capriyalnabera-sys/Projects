@@ -15,7 +15,7 @@ exit /b 1
 if errorlevel 1 goto fail
 "%VPY%" -m pytest -q tests
 if errorlevel 1 goto testfail
-"%VPY%" -m PyInstaller --noconfirm --clean --onefile --windowed --name IndAS116LeaseApp --exclude-module PySide6.QtWebEngineCore --exclude-module PySide6.QtWebEngineWidgets --exclude-module tkinter main.py
+"%VPY%" -m PyInstaller --noconfirm --clean --onefile --windowed --name IndAS116LeaseApp --icon assets\app_icon.ico --add-data "assets;assets" --exclude-module PySide6.QtWebEngineCore --exclude-module PySide6.QtWebEngineWidgets --exclude-module tkinter main.py
 if errorlevel 1 goto fail
 echo.
 echo Build complete: dist\IndAS116LeaseApp.exe

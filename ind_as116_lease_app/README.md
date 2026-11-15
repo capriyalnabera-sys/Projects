@@ -50,6 +50,15 @@ PyInstaller. Copy that one file to any Windows PC; Python is not needed there.
 A ready-built `.exe` is also produced automatically on GitHub (Actions → *Build Ind AS 116 Lease App*)
 every time the app changes on the `My-Projects` branch.
 
+### Change the app icon
+
+```bat
+.venv\Scripts\python scripts\set_app_icon.py C:\path\to\my_icon.png
+```
+
+This writes `assets/app_icon.png` and `assets/app_icon.ico`; push them and GitHub builds a new `.exe`
+with the icon. Use a square PNG with a transparent background, 256 × 256 or larger.
+
 ## Folder structure
 
 ```

@@ -35,6 +35,7 @@ jobs:
       - name: Build a single self-contained .exe with PyInstaller
         run: >
           pyinstaller --noconfirm --clean --onefile --windowed --name IndAS116LeaseApp
+          --icon assets/app_icon.ico --add-data "assets;assets"
           --exclude-module PySide6.QtWebEngineCore --exclude-module PySide6.QtWebEngineWidgets
           --exclude-module tkinter
           main.py

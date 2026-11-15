@@ -77,6 +77,18 @@ def run():
 
     app = QApplication([sys.argv[0]] + qt_args)
     app.setApplicationName("Ind AS 116 Lease Accounting")
+    # icon: bundled inside the .exe (sys._MEIPASS) or next to main.py when run from source
+    from PySide6.QtGui import QIcon
+    base = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent))
+    icon_file = base / "assets" / "app_icon.png"
+    if icon_file.exists():
+        app.setWindowIcon(QIcon(str(icon_file)))
+    if sys.platform.startswith("win"):
+        try:  # show our icon (not Python's) on the Windows taskbar
+            import ctypes
+            ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("IndAS116.LeaseAccounting")
+        except Exception:
+            pass
     if args.self_test:
         import tempfile
         db_path = Path(tempfile.mkdtemp()) / "self_test.sqlite"
